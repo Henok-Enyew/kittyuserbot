@@ -110,3 +110,4 @@ config.py
 start.sh
 photo_*.jpg
 venv/
+.github/
