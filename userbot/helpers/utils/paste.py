@@ -24,132 +24,83 @@ headers = {
 
 async def p_paste(message, extension=None):
     """
-    To Paste the given message/text/code to paste.pelkum.dev
+    To Paste the given message/text/code to paste.rs
     """
-    siteurl = "https://pasty.lus.pm/api/v1/pastes"
-    data = {"content": message}
     try:
-        response = requests.post(url=siteurl, data=json.dumps(data), headers=headers)
+        response = requests.post(
+            "https://paste.rs/",
+            data=message.encode("utf-8"),
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+            timeout=10,
+        )
     except Exception as e:
         return {"error": str(e)}
-    if response.ok:
-        response = response.json()
-        purl = (
-            f"https://pasty.lus.pm/{response['id']}.{extension}"
-            if extension
-            else f"https://pasty.lus.pm/{response['id']}.txt"
-        )
-        try:
-            from ...core.session import catub
-
-            await catub.send_message(
-                Config.BOTLOG_CHATID,
-                f"**You have created a new paste in pasty bin.** Link to pasty is [here]({purl}). You can delete that paste by using this token `{response['deletionToken']}`",
-            )
-        except Exception as e:
-            LOGS.info(str(e))
+    if response.status_code == 201:
+        purl = response.text.strip()
         return {
             "url": purl,
-            "raw": f"https://pasty.lus.pm/{response['id']}/raw",
-            "bin": "Pasty",
+            "raw": purl,
+            "bin": "paste.rs",
         }
-    return {"error": "Unable to reach pasty.lus.pm"}
+    return {"error": f"paste.rs returned {response.status_code}"}
 
 
 async def s_paste(message, extension="txt"):
     """
-    To Paste the given message/text/code to spaceb.in
+    To Paste the given message/text/code to dpaste.com
     """
-    siteurl = "https://spaceb.in/api/v1/documents/"
     try:
         response = requests.post(
-            siteurl, data={"content": message, "extension": extension}
+            "https://dpaste.com/api/v2/",
+            data={"content": message, "syntax": "text", "expiry_days": 7},
+            timeout=10,
         )
     except Exception as e:
         return {"error": str(e)}
-    if response.ok:
-        response = response.json()
-        if response["error"] != "" and response["status"] < 400:
-            return {"error": response["error"]}
+    if response.status_code == 201:
+        purl = response.text.strip().strip('"')
         return {
-            "url": f"https://spaceb.in/{response['payload']['id']}",
-            "raw": f"{siteurl}{response['payload']['id']}/raw",
-            "bin": "Spacebin",
+            "url": purl,
+            "raw": purl + ".txt",
+            "bin": "dpaste",
         }
-    return {"error": "Unable to reach spacebin."}
+    return {"error": f"dpaste returned {response.status_code}"}
 
 
 def spaste(message, extension="txt"):
     """
-    To Paste the given message/text/code to spaceb.in
+    To Paste the given message/text/code to dpaste.com (sync version)
     """
-    siteurl = "https://spaceb.in/api/v1/documents/"
     try:
         response = requests.post(
-            siteurl, data={"content": message, "extension": extension}
+            "https://dpaste.com/api/v2/",
+            data={"content": message, "syntax": "text", "expiry_days": 7},
+            timeout=10,
         )
     except Exception as e:
         return {"error": str(e)}
-    if response.ok:
-        response = response.json()
-        if response["error"] != "" and response["status"] < 400:
-            return {"error": response["error"]}
+    if response.status_code == 201:
+        purl = response.text.strip().strip('"')
         return {
-            "url": f"https://spaceb.in/{response['payload']['id']}",
-            "raw": f"{siteurl}{response['payload']['id']}/raw",
-            "bin": "Spacebin",
+            "url": purl,
+            "raw": purl + ".txt",
+            "bin": "dpaste",
         }
-    return {"error": "Unable to reach spacebin."}
+    return {"error": f"dpaste returned {response.status_code}"}
 
 
 async def n_paste(message, extension=None):
     """
-    To Paste the given message/text/code to nekobin
+    To Paste the given message/text/code to paste.rs (fallback)
     """
-    siteurl = "https://nekobin.com/api/documents"
-    data = {"content": message}
-    try:
-        response = requests.post(url=siteurl, data=json.dumps(data), headers=headers)
-    except Exception as e:
-        return {"error": str(e)}
-    if response.ok:
-        response = response.json()
-        purl = (
-            f"nekobin.com/{response['result']['key']}.{extension}"
-            if extension
-            else f"nekobin.com/{response['result']['key']}"
-        )
-        return {
-            "url": purl,
-            "raw": f"nekobin.com/raw/{response['result']['key']}",
-            "bin": "Neko",
-        }
-    return {"error": "Unable to reach nekobin."}
+    return await p_paste(message, extension)
 
 
 async def d_paste(message, extension=None):
     """
-    To Paste the given message/text/code to dogbin
+    To Paste the given message/text/code to dpaste.com
     """
-    siteurl = "http://catbin.up.railway.app/documents"
-    data = {"content": message}
-    try:
-        response = requests.post(url=siteurl, data=json.dumps(data), headers=headers)
-    except Exception as e:
-        return {"error": str(e)}
-    if response.ok:
-        response = response.json()
-        purl = (
-            f"http://catbin.up.railway.app/{response['key']}.{extension}"
-            if extension
-            else f"http://catbin.up.railway.app/{response['key']}"
-        )
-        return {
-            "url": purl,
-            "raw": f"http://catbin.up.railway.app/raw/{response['key']}",
-            "bin": "Dog",
-        }
-    return {"error": "Unable to reach dogbin."}
+    return await s_paste(message, extension)
 
 
 async def pastetext(text_to_print, pastetype=None, extension=None):

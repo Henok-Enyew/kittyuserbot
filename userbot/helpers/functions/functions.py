@@ -460,42 +460,80 @@ def higlighted_text(
 
 # for stickertxt
 async def waifutxt(text, chat_id, reply_to_id, bot):
-    animus = [
-        0,
-        1,
-        2,
-        3,
-        4,
-        9,
-        15,
-        20,
-        22,
-        27,
-        29,
-        32,
-        33,
-        34,
-        37,
-        38,
-        41,
-        42,
-        44,
-        45,
-        47,
-        48,
-        51,
-        52,
-        53,
-        55,
-        56,
-        57,
-        58,
-        61,
-        62,
-        63,
+    """Generate a stylish transparent text sticker locally using Pillow."""
+    import io
+    import random as _rnd
+    import textwrap as _tw
+    from PIL import (
+        Image as _Image,
+        ImageDraw as _ImageDraw,
+        ImageFilter as _ImageFilter,
+        ImageFont as _ImageFont,
+    )
+
+    _FONTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fonts")
+
+    # (font_file, uppercase, fill, stroke_fill, stroke_w, shadow_rgba, wrap_width)
+    _STYLES = [
+        ("bangers.ttf",     True,  "#FF6B6B", "#1a0000", 7,  (0,0,0,100),   13),  # hot-red comic
+        ("pacifico.ttf",    False, "#FFEAA7", "#6C3483", 6,  (108,52,131,90), 14), # golden cursive
+        ("pressstart.ttf",  True,  "#00FF41", "#003300", 5,  (0,255,65,80),  8),   # matrix pixel
+        ("lobster.ttf",     False, "#FF9FF3", "#2C003E", 6,  (0,0,0,90),    14),  # pink lobster
+        ("creepster.ttf",   True,  "#FF5733", "#000000", 5,  (255,0,0,70),  13),  # horror orange
+        ("righteous.ttf",   False, "#74B9FF", "#023E8A", 6,  (0,0,0,80),    14),  # cool blue
+        ("blackopsone.ttf", True,  "#F9CA24", "#000000", 6,  (0,0,0,100),   12),  # yellow military
+        ("orbitron.ttf",    True,  "#A29BFE", "#2D3561", 5,  (0,0,0,80),    10),  # sci-fi purple
     ]
-    sticcers = await bot.inline_query("stickerizerbot", f"#{choice(animus)}{text}")
-    cat = await sticcers[0].click("me", hide_via=True)
-    if cat:
-        await bot.send_file(int(chat_id), cat, reply_to=reply_to_id)
-        await cat.delete()
+
+    font_file, uppercase, fill, stroke_fill, stroke_w, shadow_rgba, wrap_w = _rnd.choice(_STYLES)
+    font_path = os.path.join(_FONTS_DIR, font_file)
+
+    display = text.upper() if uppercase else text
+    wrapped = _tw.fill(display, width=wrap_w)
+
+    size = 512
+    img = _Image.new("RGBA", (size, size), (0, 0, 0, 0))  # transparent
+    draw = _ImageDraw.Draw(img)
+
+    fontsize = 130
+    font = _ImageFont.truetype(font_path, fontsize)
+
+    def _measure(d, t, f):
+        b = d.textbbox((0, 0), t, font=f, stroke_width=stroke_w)
+        return b[2] - b[0], b[3] - b[1]
+
+    while True:
+        w, h = _measure(draw, wrapped, font)
+        if w <= size - 30 and h <= size - 30:
+            break
+        fontsize -= 4
+        if fontsize < 14:
+            break
+        font = _ImageFont.truetype(font_path, fontsize)
+
+    w, h = _measure(draw, wrapped, font)
+    x, y = (size - w) / 2, (size - h) / 2
+
+    # drop shadow layer
+    shadow_layer = _Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    sd = _ImageDraw.Draw(shadow_layer)
+    sd.multiline_text(
+        (x + 8, y + 8), wrapped, font=font,
+        fill=shadow_rgba, align="center",
+    )
+    shadow_layer = shadow_layer.filter(_ImageFilter.GaussianBlur(10))
+    img = _Image.alpha_composite(img, shadow_layer)
+    draw = _ImageDraw.Draw(img)
+
+    # main text with stroke
+    draw.multiline_text(
+        (x, y), wrapped, font=font, fill=fill,
+        stroke_width=stroke_w, stroke_fill=stroke_fill,
+        align="center",
+    )
+
+    buf = io.BytesIO()
+    buf.name = "sttxt.webp"
+    img.save(buf, "WebP")
+    buf.seek(0)
+    await bot.send_file(int(chat_id), buf, reply_to=reply_to_id)

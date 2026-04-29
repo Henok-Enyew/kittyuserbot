@@ -50,13 +50,16 @@ plugin_category = "misc"
 
 
 video_opts = {
-    "format": "best",
+    "format": "best[height<=720]/best",
     "addmetadata": True,
     "key": "FFmpegMetadata",
     "writethumbnail": True,
     "prefer_ffmpeg": True,
     "geo_bypass": True,
     "nocheckcertificate": True,
+    "extractor_args": {
+        "youtube": {"player_client": ["mweb", "web"]}
+    },
     "postprocessors": [
         {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
         {"key": "FFmpegMetadata"},

@@ -110,10 +110,15 @@ async def sticklet(event):
     ).json()
     FONT_FILE = requests.get(random.choice(json["fonts"]))
     font = ImageFont.truetype(BytesIO(FONT_FILE.content), size=fontsize)
-    while draw.multiline_textsize(sticktext, font=font) > (512, 512):
+
+    def _textsize(d, txt, f):
+        bbox = d.textbbox((0, 0), txt, font=f)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    while _textsize(draw, sticktext, font) > (512, 512):
         fontsize -= 3
         font = ImageFont.truetype(BytesIO(FONT_FILE.content), size=fontsize)
-    width, height = draw.multiline_textsize(sticktext, font=font)
+    width, height = _textsize(draw, sticktext, font)
     draw.multiline_text(
         ((512 - width) / 2, (512 - height) / 2), sticktext, font=font, fill=(RGB)
     )

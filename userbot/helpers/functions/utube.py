@@ -318,19 +318,20 @@ def _tubeDl(url: str, starttime, uid: str):
 def _mp3Dl(url: str, starttime, uid: str):
     _opts = {
         "outtmpl": os.path.join(Config.TEMP_DIR, str(starttime), "%(title)s.%(ext)s"),
-        #         "logger": LOGS,
         "writethumbnail": True,
         "prefer_ffmpeg": True,
         "format": "bestaudio/best",
         "geo_bypass": True,
         "nocheckcertificate": True,
+        "extractor_args": {
+            "youtube": {"player_client": ["mweb", "web"]}
+        },
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
                 "preferredquality": uid,
             },
-            {"key": "EmbedThumbnail"},  # ERROR: Conversion failed!
             {"key": "FFmpegMetadata"},
         ],
         "quiet": True,

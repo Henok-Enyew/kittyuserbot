@@ -105,3 +105,8 @@ config.py
 # mypy
 .mypy_cache/
 *.bak
+.env
+*.session
+start.sh
+photo_*.jpg
+venv/
