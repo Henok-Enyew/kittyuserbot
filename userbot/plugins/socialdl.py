@@ -173,7 +173,7 @@ async def ttv_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=True,
+        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
 
@@ -203,7 +203,7 @@ async def tta_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=True,
+        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
 
@@ -233,7 +233,7 @@ async def inv_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=True,
+        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
 
@@ -263,6 +263,6 @@ async def ina_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=True,
+        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
