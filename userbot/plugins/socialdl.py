@@ -37,48 +37,33 @@ async def _get_url(event):
 
 
 async def _talk_to_bot(event, catevent, reply_to_id, bot_username, url,
-                       send_start=True, ack_after_url=True,
                        first_timeout=90, more_timeout=5):
     """
-    Open a conversation with bot_username, optionally send /start,
-    send the URL, collect all media responses, forward them to the user.
-    Returns True on success, False on failure.
+    1. Send /start outside conversation (fire and forget, just to wake the bot)
+    2. Wait briefly for bot to process
+    3. Open fresh conversation, send URL only, collect all media responses
     """
     media_list = []
 
     try:
+        # Step 1: wake the bot with /start outside any conversation
+        try:
+            start_msg = await event.client.send_message(bot_username, "/start")
+        except YouBlockedUserError:
+            await catub(unblock(bot_username))
+            start_msg = await event.client.send_message(bot_username, "/start")
+        except Exception:
+            start_msg = None
+
+        # Step 2: give bot time to process /start before we open conversation
+        await asyncio.sleep(3)
+
+        # Step 3: open fresh conversation and send URL only
         async with event.client.conversation(bot_username, timeout=first_timeout) as conv:
-            # Send /start inside the conversation
-            try:
-                start_msg = await conv.send_message("/start")
-            except YouBlockedUserError:
-                await catub(unblock(bot_username))
-                start_msg = await conv.send_message("/start")
-
-            if send_start:
-                # Consume the /start reply
-                try:
-                    await conv.get_response(timeout=15)
-                    await event.client.send_read_acknowledge(conv.chat_id)
-                except asyncio.TimeoutError:
-                    pass
-
-            # Send the URL
             await conv.send_message(url)
             await event.client.send_read_acknowledge(conv.chat_id)
 
-            # Some bots send an immediate ack/processing message before the media
-            if ack_after_url:
-                try:
-                    ack = await conv.get_response(timeout=20)
-                    await event.client.send_read_acknowledge(conv.chat_id)
-                    # If the ack itself has media, keep it
-                    if ack.media:
-                        media_list.append(ack)
-                except asyncio.TimeoutError:
-                    pass
-
-            # Collect actual media responses
+            # Collect all responses until timeout
             while True:
                 try:
                     msg = await conv.get_response(timeout=more_timeout)
@@ -93,21 +78,22 @@ async def _talk_to_bot(event, catevent, reply_to_id, bot_username, url,
             )
             return False
 
-        # Separate media from text-only error messages
+        # Only keep messages with media
         media_msgs = [m for m in media_list if m.media]
         if not media_msgs:
             err = media_list[-1].text if media_list else "No media received."
             await catevent.edit(f"`{err[:300]}`")
             return False
 
-        # Forward all media to user's chat
+        # Forward to user's chat
         await catevent.delete()
         await event.client.send_file(
             event.chat_id,
             media_msgs,
             reply_to=reply_to_id,
         )
-        await delete_conv(event, bot_username, start_msg)
+        if start_msg:
+            await delete_conv(event, bot_username, start_msg)
         return True
 
     except asyncio.TimeoutError:
@@ -143,7 +129,6 @@ async def yta_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         YTB_AUDIO_BOT, url,
-        send_start=True, ack_after_url=True,
         first_timeout=120, more_timeout=10,
     )
 
@@ -173,7 +158,6 @@ async def ttv_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
 
@@ -203,7 +187,6 @@ async def tta_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
 
@@ -233,7 +216,6 @@ async def inv_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
 
@@ -263,6 +245,5 @@ async def ina_cmd(event):
     await _talk_to_bot(
         event, catevent, reply_to_id,
         TT_SAVE_BOT, url,
-        send_start=True, ack_after_url=False,
         first_timeout=90, more_timeout=5,
     )
