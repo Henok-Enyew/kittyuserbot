@@ -246,8 +246,8 @@ async def download_audio(event):  # sourcery skip: low-code-quality
     pattern="ytv(?:\s|$)([\s\S]*)",
     command=("ytv", plugin_category),
     info={
-        "header": "To download video from many sites like Youtube, Facebook, Instagram",
-        "description": "downloads the video from the given link ([Supported Sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md))",
+        "header": "To download video from YouTube.",
+        "description": "Downloads a YouTube video via @ttsavebot.",
         "examples": [
             "{tr}ytv <reply to link>",
             "{tr}ytv <link>",
@@ -255,7 +255,8 @@ async def download_audio(event):  # sourcery skip: low-code-quality
     },
 )
 async def download_video(event):
-    """To download video from YouTube and many other sites."""
+    """Download YouTube video via @ttsavebot."""
+    from .socialdl import _talk_to_bot
     msg = event.pattern_match.group(1)
     rmsg = await event.get_reply_message()
     if not msg and rmsg:
@@ -263,55 +264,16 @@ async def download_video(event):
     urls = extractor.find_urls(msg)
     if not urls:
         return await edit_or_reply(event, "What I am Supposed to do? Give link")
-    catevent = await edit_or_reply(event, "`Preparing to download...`")
+    url = urls[0]
+    if "youtu" not in url:
+        return await edit_or_reply(event, "`That doesn't look like a YouTube URL.`")
+    catevent = await edit_or_reply(event, "`Fetching YouTube video...`")
     reply_to_id = await reply_id(event)
-    for url in urls:
-        ytdl_data = await ytdl_down(catevent, video_opts, url)
-        if ytdl_down is None:
-            return
-        try:
-            f = pathlib.Path("cat_ytv.mp4")
-            catthumb = pathlib.Path("cat_ytv.jpg")
-            if not os.path.exists(catthumb):
-                catthumb = pathlib.Path("cat_ytv.webp")
-            if not os.path.exists(catthumb):
-                catthumb = None
-            await catevent.edit(
-                f"`Preparing to upload video:`\
-                \n**{ytdl_data['title']}**"
-            )
-            ul = io.open(f, "rb")
-            c_time = time()
-            attributes, mime_type = await fix_attributes(
-                f, ytdl_data, supports_streaming=True
-            )
-            uploaded = await event.client.fast_upload_file(
-                file=ul,
-                progress_callback=lambda d, t: asyncio.get_event_loop().create_task(
-                    progress(
-                        d, t, catevent, c_time, "Upload :", file_name=ytdl_data["title"]
-                    )
-                ),
-            )
-            ul.close()
-            media = types.InputMediaUploadedDocument(
-                file=uploaded,
-                mime_type=mime_type,
-                attributes=attributes,
-            )
-            await event.client.send_file(
-                event.chat_id,
-                file=media,
-                reply_to=reply_to_id,
-                caption=f'**Title :** `{ytdl_data["title"]}`',
-                thumb=catthumb,
-            )
-            os.remove(f)
-            if catthumb:
-                os.remove(catthumb)
-        except TypeError:
-            await asyncio.sleep(2)
-    await event.delete()
+    await _talk_to_bot(
+        event, catevent, reply_to_id,
+        "ttsavebot", url,
+        first_timeout=120, more_timeout=10,
+    )
 
 
 @catub.cat_cmd(
