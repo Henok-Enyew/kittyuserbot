@@ -10,10 +10,19 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 import os
+import logging
+
+LOGS = logging.getLogger("CatUserbot")
 
 ENV = bool(os.environ.get("ENV", False))
 
 if ENV:
     from sample_config import Config  # noqa
+    LOGS.info("Config loaded from environment variables")
 elif os.path.exists("config.py"):
     from config import Development as Config  # noqa
+    LOGS.info("Config loaded from config.py")
+else:
+    # Fallback: load directly from sample_config which reads os.environ
+    from sample_config import Config  # noqa
+    LOGS.info("Config loaded from sample_config (env var fallback)")
