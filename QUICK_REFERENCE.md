@@ -7,6 +7,13 @@
 .aipmpermit on
 ```
 
+### Switch AI Provider
+```
+.aiswitch mistral    (default)
+.aiswitch nvidia     (alternative)
+.ai provider         (show current)
+```
+
 ### Ask AI Anything
 ```
 .ask what is my portfolio?
@@ -64,6 +71,13 @@ Bot: ✅ User approved
 ---
 
 ## 🎯 Command Cheat Sheet
+
+### AI Provider Management
+| Command | What It Does |
+|---------|--------------|
+| `.aiswitch mistral` | Switch to Mistral AI |
+| `.aiswitch nvidia` | Switch to NVIDIA AI |
+| `.ai provider` | Show current provider |
 
 ### PM Permit
 | Command | What It Does |
@@ -182,12 +196,17 @@ AI: Your portfolio is at https://henokenyew.me...
 - ✅ Telegram username
 - ✅ Skills and experience
 - ✅ Projects and education
+- ✅ Phone number (ONLY when asked for contact info)
 
 **What AI Never Shares:**
-- ❌ Phone number
 - ❌ Personal email
 - ❌ Private conversations
 - ❌ Passwords or sensitive data
+
+**Phone Number Policy:**
+- Shared only when users explicitly ask for contact information
+- Not mentioned in casual conversations
+- Appropriate for professional contact requests
 
 ---
 
@@ -199,6 +218,7 @@ The AI will share these when asked:
 - LinkedIn: https://www.linkedin.com/in/henokenyew/
 - LeetCode: https://leetcode.com/henokenyew
 - Telegram: @henokenyew
+- Phone: +251904927815 (when asked for contact)
 
 ---
 

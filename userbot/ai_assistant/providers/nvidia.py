@@ -1,11 +1,11 @@
-# NVIDIA AI Provider Implementation (Future Support)
+# NVIDIA AI Provider Implementation
 import aiohttp
 from typing import List, Dict
 from .base import AIProvider
 
 
 class NVIDIAProvider(AIProvider):
-    """NVIDIA AI provider implementation for future use"""
+    """NVIDIA AI provider implementation"""
     
     API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
     DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
@@ -43,24 +43,45 @@ class NVIDIAProvider(AIProvider):
             "stream": False
         }
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.API_URL,
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"NVIDIA API error ({response.status}): {error_text}")
-                    
-                    data = await response.json()
-                    return data["choices"][0]["message"]["content"].strip()
+        # Retry logic
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        self.API_URL,
+                        headers=headers,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            if attempt < max_retries - 1:
+                                continue  # Retry
+                            raise Exception(f"NVIDIA API error ({response.status}): {error_text}")
+                        
+                        data = await response.json()
+                        content = data["choices"][0]["message"]["content"].strip()
+                        
+                        # Handle empty responses
+                        if not content:
+                            if attempt < max_retries - 1:
+                                continue  # Retry
+                            raise Exception("NVIDIA returned empty response")
+                        
+                        return content
+            
+            except aiohttp.ClientError as e:
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                raise Exception(f"Network error calling NVIDIA API: {str(e)}")
+            except KeyError as e:
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                raise Exception(f"Unexpected NVIDIA API response format: {str(e)}")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                raise Exception(f"NVIDIA AI error: {str(e)}")
         
-        except aiohttp.ClientError as e:
-            raise Exception(f"Network error calling NVIDIA API: {str(e)}")
-        except KeyError as e:
-            raise Exception(f"Unexpected NVIDIA API response format: {str(e)}")
-        except Exception as e:
-            raise Exception(f"NVIDIA AI error: {str(e)}")
+        raise Exception("NVIDIA AI failed after retries")

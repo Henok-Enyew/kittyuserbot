@@ -38,13 +38,38 @@ def get_ai_components():
     """Lazy-initialise and return (provider, conversation_engine)."""
     global _ai_provider, _conv_engine
 
-    if _ai_provider is None:
-        api_key = _resolve_config("AI_API_KEY")
+    # Always get the current provider from state
+    current_provider = ai_state.get_provider()
+    
+    # Check if we need to reinitialize the provider
+    if _ai_provider is None or _ai_provider.get_provider_name().lower().split()[0] != current_provider:
+        # Get provider-specific API key
+        if current_provider == "mistral":
+            api_key = _resolve_config("MISTRAL_API_KEY") or _resolve_config("AI_API_KEY")
+        elif current_provider == "nvidia":
+            api_key = _resolve_config("NVIDIA_API_KEY") or _resolve_config("AI_API_KEY")
+        else:
+            api_key = _resolve_config("AI_API_KEY")
+        
         if not api_key:
-            raise ValueError("AI_API_KEY is not set. Add it to your environment variables.")
-        provider_name = _resolve_config("AI_PROVIDER", "mistral")
-        _ai_provider = get_ai_provider(provider_name, api_key)
-        LOGS.info(f"AI provider ready: {_ai_provider.get_provider_name()}")
+            raise ValueError(
+                f"API key not set for {current_provider}. "
+                f"Set {current_provider.upper()}_API_KEY or AI_API_KEY in environment."
+            )
+        
+        try:
+            _ai_provider = get_ai_provider(current_provider, api_key)
+            LOGS.info(f"AI provider initialized: {_ai_provider.get_provider_name()}")
+        except Exception as e:
+            LOGS.error(f"Failed to initialize {current_provider} provider: {e}")
+            # Fallback to mistral if current provider fails
+            if current_provider != "mistral":
+                LOGS.info("Falling back to Mistral provider...")
+                ai_state.set_provider("mistral")
+                api_key = _resolve_config("MISTRAL_API_KEY") or _resolve_config("AI_API_KEY")
+                _ai_provider = get_ai_provider("mistral", api_key)
+            else:
+                raise
 
     if _conv_engine is None:
         user_name = _resolve_config("ALIVE_NAME", "Henok")
@@ -169,6 +194,95 @@ async def ai_status(event):
         f"**Style examples:** {len(ai_state.user_style_examples)}\n"
         f"**User:** {user_name}"
     )
+    await edit_or_reply(event, msg)
+
+
+@catub.cat_cmd(
+    pattern=r"aiswitch(?:\s+(.+))?$",
+    command=("aiswitch", plugin_category),
+    info={
+        "header": "Switch AI provider",
+        "description": "Switch between Mistral AI and NVIDIA AI providers at runtime.",
+        "usage": [
+            "{tr}aiswitch mistral",
+            "{tr}aiswitch nvidia",
+        ],
+        "examples": [
+            "{tr}aiswitch mistral",
+            "{tr}aiswitch nvidia",
+        ],
+        "note": "Switching affects all AI features: auto-reply, AI AFK, and AI PM Permit.",
+    },
+)
+async def ai_switch_provider(event):
+    "Switch AI provider at runtime."
+    provider_name = event.pattern_match.group(1)
+    
+    if not provider_name:
+        return await edit_delete(
+            event,
+            "**Usage:** `.aiswitch <provider>`\n\n"
+            "**Available providers:**\n"
+            "• `mistral` - Mistral AI (default)\n"
+            "• `nvidia` - NVIDIA AI\n\n"
+            f"**Current:** {ai_state.get_provider()}",
+            8
+        )
+    
+    provider_name = provider_name.strip().lower()
+    
+    if not ai_state.set_provider(provider_name):
+        return await edit_delete(
+            event,
+            f"❌ **Invalid provider:** `{provider_name}`\n\n"
+            "**Available providers:**\n"
+            "• `mistral` - Mistral AI\n"
+            "• `nvidia` - NVIDIA AI",
+            6
+        )
+    
+    # Force reinitialization on next use
+    global _ai_provider
+    _ai_provider = None
+    
+    # Test the new provider
+    try:
+        provider, _ = get_ai_components()
+        provider_display = provider.get_provider_name()
+        await edit_delete(
+            event,
+            f"✅ **Switched to {provider_display}**\n\n"
+            "All AI features will now use this provider.",
+            5
+        )
+    except Exception as e:
+        await edit_delete(
+            event,
+            f"⚠️ **Provider switched but initialization failed:**\n{str(e)}\n\n"
+            "The provider will be initialized on first use.",
+            8
+        )
+
+
+@catub.cat_cmd(
+    pattern=r"ai provider$",
+    command=("ai provider", plugin_category),
+    info={
+        "header": "Show current AI provider",
+        "description": "Display which AI provider is currently active.",
+        "usage": "{tr}ai provider",
+        "examples": "{tr}ai provider",
+    },
+)
+async def ai_show_provider(event):
+    "Show current AI provider."
+    try:
+        provider, _ = get_ai_components()
+        provider_name = provider.get_provider_name()
+        msg = f"**🤖 Current AI Provider**\n\n**Active:** {provider_name}"
+    except Exception as e:
+        msg = f"**🤖 Current AI Provider**\n\n**Status:** Not initialized\n**Error:** {str(e)}"
+    
     await edit_or_reply(event, msg)
 
 
@@ -407,7 +521,8 @@ async def ai_auto_respond(event):
         afk_reason = getattr(_ub, "AFKREASON", None) if is_afk else None
 
     try:
-        await event.client.send_read_acknowledge(chat_id, event.message)
+        # Note: Commenting out read acknowledgment to avoid marking chats as read
+        # await event.client.send_read_acknowledge(chat_id, event.message)
         await asyncio.sleep(1.5)  # simulate human typing delay
 
         messages = conv_engine.build_messages(

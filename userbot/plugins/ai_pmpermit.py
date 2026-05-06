@@ -273,7 +273,8 @@ async def aipmpermit_handler(event):
     is_new = ai_state.is_new_chat(chat_id)
 
     try:
-        await event.client.send_read_acknowledge(chat_id, event.message)
+        # Note: Commenting out read acknowledgment to avoid marking chats as read
+        # await event.client.send_read_acknowledge(chat_id, event.message)
         await asyncio.sleep(1.2)
 
         messages = conv_engine.build_messages(

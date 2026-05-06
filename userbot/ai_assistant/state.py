@@ -41,6 +41,10 @@ class AIState:
         self._load_approved_users()  # Load from database on init
         # ────────────────────────────────────────────────────────────────────
 
+        # ── AI Provider Management ───────────────────────────────────────────
+        self.current_provider: str = "mistral"  # default provider
+        # ────────────────────────────────────────────────────────────────────
+
         # Configuration
         self.cooldown_seconds: int = 5   # Minimum seconds between responses
         self.max_history_per_chat: int = 10
@@ -187,6 +191,21 @@ class AIState:
 
     def get_style_examples(self, limit: int = 5) -> list:
         return self.user_style_examples[-limit:] if self.user_style_examples else []
+
+    # ── AI Provider Management ────────────────────────────────────────────
+
+    def set_provider(self, provider_name: str) -> bool:
+        """Set the current AI provider."""
+        provider_name = provider_name.lower()
+        valid_providers = ["mistral", "nvidia"]
+        if provider_name not in valid_providers:
+            return False
+        self.current_provider = provider_name
+        return True
+
+    def get_provider(self) -> str:
+        """Get the current AI provider name."""
+        return self.current_provider
 
 
 # Global singleton
