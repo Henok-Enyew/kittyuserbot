@@ -12,7 +12,7 @@ from userbot.core.logger import logging
 from userbot.core.managers import edit_delete, edit_or_reply
 from userbot.ai_assistant.state import ai_state
 
-# Reuse the same provider/engine initialised in ai_assistant.py
+# Reuse the same provider/engine from ai_assistant.py
 # Import lazily to avoid circular issues at load time
 def _get_ai():
     from userbot.plugins.ai_assistant import get_ai_components
@@ -186,7 +186,7 @@ async def aipmpermit_handler(event):
         return
 
     try:
-        provider, conv_engine = get_ai_components()
+        provider, conv_engine = _get_ai()
     except Exception as e:
         LOGS.error(f"AI PM Permit — AI not ready: {e}")
         return

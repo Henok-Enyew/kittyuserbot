@@ -252,8 +252,20 @@ async def ai_auto_respond(event):
     # ── Decide whether to respond ──────────────────────────────────────────
     # AI AFK: respond to ALL private messages and group mentions
     # Regular AI: respond to private messages and group mentions only
+    # PM Permit: unapproved users get AI responses regardless of global setting
     in_aiafk = ai_state.aiafk_enabled
     in_regular_ai = ai_state.is_enabled(chat_id)
+    in_aipmpermit = ai_state.aipmpermit_enabled
+
+    # If PM permit is enabled and user is NOT approved, skip here (PM permit handler handles it)
+    if in_aipmpermit and event.is_private:
+        sender = await event.get_sender()
+        if sender and not isinstance(sender, User):
+            # Not a user (channel/group), skip
+            pass
+        elif not ai_state.is_approved(sender.id):
+            # Unapproved user in PM permit mode - let PM permit handler deal with it
+            return
 
     if not in_aiafk and not in_regular_ai:
         return
