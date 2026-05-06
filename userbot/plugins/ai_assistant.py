@@ -188,6 +188,107 @@ async def ai_clear_history(event):
     await edit_delete(event, "🗑️ Conversation history cleared.", 5)
 
 
+@catub.cat_cmd(
+    pattern=r"ask(?:\s+(.+))?$",
+    command=("ask", plugin_category),
+    info={
+        "header": "Ask AI directly",
+        "description": (
+            "Ask the AI assistant anything directly in any chat. "
+            "Perfect for general questions, information about yourself, or quick queries. "
+            "The AI has access to your profile and can answer questions about you."
+        ),
+        "usage": [
+            "{tr}ask <question>",
+            "{tr}ask (reply to a message to ask about it)",
+        ],
+        "examples": [
+            "{tr}ask what is quantum computing?",
+            "{tr}ask what is my portfolio?",
+            "{tr}ask tell me about my work experience",
+            "{tr}ask what are my skills?",
+            "{tr}ask explain this (reply to a message)",
+        ],
+        "note": (
+            "Works in any chat (private or group). "
+            "The AI knows about you from your profile and can answer personal questions. "
+            "You can also reply to any message and ask the AI to explain or analyze it."
+        ),
+    },
+)
+async def ask_ai(event):
+    "Ask AI assistant directly about anything."
+    question = event.pattern_match.group(1)
+    reply = await event.get_reply_message()
+    
+    # Build the question
+    if reply and reply.message:
+        # If replying to a message, include it in context
+        replied_text = reply.message
+        if question:
+            question = f"{question}\n\nReferenced message: {replied_text}"
+        else:
+            question = f"Explain or analyze this message: {replied_text}"
+    elif not question:
+        return await edit_delete(
+            event,
+            "**Usage:** `.ask <question>` or reply to a message with `.ask`\n\n"
+            "**Examples:**\n"
+            "• `.ask what is my portfolio?`\n"
+            "• `.ask what are my skills?`\n"
+            "• `.ask explain quantum computing`\n"
+            "• Reply to a message: `.ask explain this`",
+            8
+        )
+    
+    # Show thinking indicator
+    thinking_msg = await edit_or_reply(event, "🤔 **Thinking...**")
+    
+    try:
+        provider, conv_engine = get_ai_components()
+    except Exception as e:
+        return await thinking_msg.edit(f"❌ **AI not configured:** {str(e)}")
+    
+    try:
+        # Build messages for direct query (no chat history, fresh context)
+        messages = conv_engine.build_messages(
+            current_message=question,
+            chat_history=None,  # No history for direct queries
+            is_new_chat=False,
+            is_afk=False,
+            afk_reason=None,
+            style_examples=None,  # No style mimicry for direct queries
+            is_pmpermit=False,
+        )
+        
+        response = await provider.generate_response(
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500,
+        )
+        
+        # Format the response nicely
+        formatted_response = f"**🤖 AI Response:**\n\n{response}"
+        
+        # If response is too long, split it
+        if len(formatted_response) > 4000:
+            # Send in chunks
+            await thinking_msg.edit(formatted_response[:4000])
+            remaining = formatted_response[4000:]
+            while remaining:
+                chunk = remaining[:4000]
+                await event.reply(chunk)
+                remaining = remaining[4000:]
+        else:
+            await thinking_msg.edit(formatted_response)
+        
+        LOGS.info(f"Direct AI query answered in chat {event.chat_id}")
+        
+    except Exception as e:
+        LOGS.error(f"AI ask command error: {e}")
+        await thinking_msg.edit(f"❌ **Error:** {str(e)}")
+
+
 # ── AI AFK ────────────────────────────────────────────────────────────────────
 
 @catub.cat_cmd(

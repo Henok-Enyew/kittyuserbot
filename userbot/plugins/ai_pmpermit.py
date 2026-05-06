@@ -72,19 +72,42 @@ async def aipmpermit_toggle(event):
     command=("aia", plugin_category),
     info={
         "header": "Approve user for AI PM Permit",
-        "description": "Approves the user in the current private chat — AI gating stops for them.",
-        "usage": "{tr}aia",
-        "examples": "{tr}aia",
+        "description": "Approves the user — works in private chats or as a reply to any message.",
+        "usage": [
+            "{tr}aia (in private chat)",
+            "{tr}aia (reply to user's message)",
+        ],
+        "examples": [
+            "{tr}aia",
+            "Reply to a message and use {tr}aia",
+        ],
     },
 )
 async def ai_approve(event):
-    "Approve the current chat user through AI PM Permit."
-    if not event.is_private:
-        return await edit_delete(event, "`This command only works in private chats.`", 5)
-
-    sender = await event.get_sender()
-    if not sender:
-        return await edit_delete(event, "`Could not identify the user.`", 5)
+    "Approve a user through AI PM Permit."
+    # Check if replying to a message
+    reply = await event.get_reply_message()
+    
+    if reply:
+        # Approving the user who sent the replied message
+        sender = await reply.get_sender()
+        if not sender:
+            return await edit_delete(event, "`Could not identify the user from the reply.`", 5)
+        
+        if isinstance(sender, User) and sender.bot:
+            return await edit_delete(event, "`Cannot approve bots.`", 5)
+            
+    elif event.is_private:
+        # Approving the current private chat user
+        sender = await event.get_sender()
+        if not sender:
+            return await edit_delete(event, "`Could not identify the user.`", 5)
+    else:
+        return await edit_delete(
+            event, 
+            "`Use this command in a private chat or reply to a user's message.`", 
+            5
+        )
 
     first_name = getattr(sender, "first_name", None)
     username = getattr(sender, "username", None)
@@ -99,19 +122,39 @@ async def ai_approve(event):
     command=("aid", plugin_category),
     info={
         "header": "Disapprove user for AI PM Permit",
-        "description": "Removes approval — AI will gate this user again.",
-        "usage": "{tr}aid",
-        "examples": "{tr}aid",
+        "description": "Removes approval — works in private chats or as a reply to any message.",
+        "usage": [
+            "{tr}aid (in private chat)",
+            "{tr}aid (reply to user's message)",
+        ],
+        "examples": [
+            "{tr}aid",
+            "Reply to a message and use {tr}aid",
+        ],
     },
 )
 async def ai_disapprove(event):
-    "Disapprove the current chat user — AI gating resumes."
-    if not event.is_private:
-        return await edit_delete(event, "`This command only works in private chats.`", 5)
-
-    sender = await event.get_sender()
-    if not sender:
-        return await edit_delete(event, "`Could not identify the user.`", 5)
+    "Disapprove a user — AI gating resumes."
+    # Check if replying to a message
+    reply = await event.get_reply_message()
+    
+    if reply:
+        # Disapproving the user who sent the replied message
+        sender = await reply.get_sender()
+        if not sender:
+            return await edit_delete(event, "`Could not identify the user from the reply.`", 5)
+            
+    elif event.is_private:
+        # Disapproving the current private chat user
+        sender = await event.get_sender()
+        if not sender:
+            return await edit_delete(event, "`Could not identify the user.`", 5)
+    else:
+        return await edit_delete(
+            event, 
+            "`Use this command in a private chat or reply to a user's message.`", 
+            5
+        )
 
     ai_state.disapprove_user(sender.id)
     name = getattr(sender, "first_name", str(sender.id))
