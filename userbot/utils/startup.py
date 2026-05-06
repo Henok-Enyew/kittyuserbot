@@ -75,7 +75,7 @@ async def startupmessage():
     Start up message in telegram logger group
     """
     try:
-        if BOTLOG:
+        if BOTLOG and BOTLOG_CHATID and BOTLOG_CHATID != "me":
             Config.CATUBLOGO = await catub.tgbot.send_file(
                 BOTLOG_CHATID,
                 "https://graph.org/file/4e3ba8e8f7e535d5a2abe.jpg",
@@ -83,14 +83,14 @@ async def startupmessage():
                 buttons=[(Button.url("Support", "https://t.me/catuserbot_support"),)],
             )
     except Exception as e:
-        LOGS.error(e)
-        return None
+        LOGS.warning(f"Could not send startup message to logger group: {e}")
+        LOGS.info("Bot will continue without sending startup message")
     try:
         msg_details = list(get_item_collectionlist("restart_update"))
         if msg_details:
             msg_details = msg_details[0]
     except Exception as e:
-        LOGS.error(e)
+        LOGS.warning(f"Could not get restart update details: {e}")
         return None
     try:
         if msg_details:
@@ -107,7 +107,7 @@ async def startupmessage():
                 )
             del_keyword_collectionlist("restart_update")
     except Exception as e:
-        LOGS.error(e)
+        LOGS.warning(f"Could not process restart update: {e}")
         return None
 
 
@@ -115,6 +115,10 @@ async def add_bot_to_logger_group(chat_id):
     """
     To add bot to logger groups
     """
+    if not chat_id or chat_id == -100:
+        LOGS.info("Skipping bot addition to logger group - invalid chat_id")
+        return
+    
     bot_details = await catub.tgbot.get_me()
     try:
         await catub(
@@ -133,7 +137,8 @@ async def add_bot_to_logger_group(chat_id):
                 )
             )
         except Exception as e:
-            LOGS.error(str(e))
+            LOGS.warning(f"Could not add bot to logger group {chat_id}: {str(e)}")
+            LOGS.info("Bot will continue without adding to logger group")
 
 
 async def load_plugins(folder, extfolder=None):

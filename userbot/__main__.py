@@ -42,9 +42,15 @@ except Exception as e:
 
 
 async def startup_process():
-    await verifyLoggerGroup()
+    try:
+        await verifyLoggerGroup()
+    except Exception as e:
+        LOGS.warning(f"Error verifying logger group: {e}")
+        LOGS.info("Continuing startup despite logger group error")
+    
     await load_plugins("plugins")
     await load_plugins("assistant")
+    
     LOGS.info(
         "============================================================================"
     )
@@ -56,11 +62,22 @@ async def startup_process():
     LOGS.info(
         "============================================================================"
     )
-    await verifyLoggerGroup()
-    await add_bot_to_logger_group(BOTLOG_CHATID)
-    if PM_LOGGER_GROUP_ID != -100:
-        await add_bot_to_logger_group(PM_LOGGER_GROUP_ID)
-    await startupmessage()
+    
+    try:
+        await verifyLoggerGroup()
+        await add_bot_to_logger_group(BOTLOG_CHATID)
+        if PM_LOGGER_GROUP_ID != -100:
+            await add_bot_to_logger_group(PM_LOGGER_GROUP_ID)
+    except Exception as e:
+        LOGS.warning(f"Error in post-startup logger setup: {e}")
+        LOGS.info("Bot will continue without full logger setup")
+    
+    try:
+        await startupmessage()
+    except Exception as e:
+        LOGS.warning(f"Error sending startup message: {e}")
+        LOGS.info("Bot will continue without startup message")
+    
     return
 
 
