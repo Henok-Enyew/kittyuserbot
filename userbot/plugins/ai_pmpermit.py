@@ -86,8 +86,11 @@ async def ai_approve(event):
     if not sender:
         return await edit_delete(event, "`Could not identify the user.`", 5)
 
-    ai_state.approve_user(sender.id)
-    name = getattr(sender, "first_name", str(sender.id))
+    first_name = getattr(sender, "first_name", None)
+    username = getattr(sender, "username", None)
+    ai_state.approve_user(sender.id, first_name, username)
+    
+    name = first_name or str(sender.id)
     await edit_delete(event, f"✅ **{name}** approved. AI gating removed for this user.", 5)
 
 
@@ -134,6 +137,36 @@ async def aipmpermit_status(event):
         f"**Pending (in AI conversation):** {len(ai_state.pending_users)}"
     )
     await edit_or_reply(event, msg)
+
+
+@catub.cat_cmd(
+    pattern=r"(?:aialist|aiapproved)$",
+    command=("aialist", plugin_category),
+    info={
+        "header": "List approved users",
+        "description": "Shows all users approved through AI PM Permit.",
+        "usage": "{tr}aialist",
+        "examples": "{tr}aialist",
+    },
+)
+async def ai_approved_list(event):
+    "List all approved users for AI PM Permit."
+    try:
+        from userbot.sql_helper.ai_pmpermit_sql import get_all_ai_approved
+        approved = get_all_ai_approved()
+        
+        if not approved:
+            return await edit_or_reply(event, "**No approved users yet.**")
+        
+        msg = "**✅ Approved Users for AI PM Permit:**\n\n"
+        for user in approved:
+            name = user.first_name or "Unknown"
+            username = f"@{user.username}" if user.username else "No username"
+            msg += f"• **{name}** ({username}) - ID: `{user.user_id}`\n"
+        
+        await edit_or_reply(event, msg)
+    except Exception as e:
+        await edit_or_reply(event, f"**Error:** {str(e)}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

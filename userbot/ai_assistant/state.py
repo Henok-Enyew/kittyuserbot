@@ -38,12 +38,24 @@ class AIState:
         self.aipmpermit_enabled: bool = False
         self.approved_users: Set[int] = set()   # users allowed through normally
         self.pending_users: Set[int] = set()    # users currently in AI-gated conversation
+        self._load_approved_users()  # Load from database on init
         # ────────────────────────────────────────────────────────────────────
 
         # Configuration
         self.cooldown_seconds: int = 5   # Minimum seconds between responses
         self.max_history_per_chat: int = 10
         self.max_style_examples: int = 20
+
+    def _load_approved_users(self):
+        """Load approved users from database on startup."""
+        try:
+            from userbot.sql_helper.ai_pmpermit_sql import get_all_ai_approved
+            approved = get_all_ai_approved()
+            if approved:
+                self.approved_users = {int(user.user_id) for user in approved}
+        except Exception:
+            # Database might not be available yet or table doesn't exist
+            pass
 
     # ── Global / per-chat toggles ──────────────────────────────────────────
 
@@ -105,12 +117,26 @@ class AIState:
     def is_approved(self, user_id: int) -> bool:
         return user_id in self.approved_users
 
-    def approve_user(self, user_id: int):
+    def approve_user(self, user_id: int, first_name: str = None, username: str = None):
+        """Approve a user and save to database."""
         self.approved_users.add(user_id)
         self.pending_users.discard(user_id)
+        # Persist to database
+        try:
+            from userbot.sql_helper.ai_pmpermit_sql import ai_approve
+            ai_approve(user_id, first_name, username)
+        except Exception:
+            pass  # Non-critical if database fails
 
     def disapprove_user(self, user_id: int):
+        """Remove approval and delete from database."""
         self.approved_users.discard(user_id)
+        # Remove from database
+        try:
+            from userbot.sql_helper.ai_pmpermit_sql import ai_disapprove
+            ai_disapprove(user_id)
+        except Exception:
+            pass  # Non-critical if database fails
 
     def mark_pending(self, user_id: int):
         self.pending_users.add(user_id)

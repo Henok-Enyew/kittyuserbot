@@ -257,15 +257,16 @@ async def ai_auto_respond(event):
     in_regular_ai = ai_state.is_enabled(chat_id)
     in_aipmpermit = ai_state.aipmpermit_enabled
 
-    # If PM permit is enabled and user is NOT approved, skip here (PM permit handler handles it)
+    # If PM permit is enabled and this is a private chat, check approval status
     if in_aipmpermit and event.is_private:
         sender = await event.get_sender()
-        if sender and not isinstance(sender, User):
-            # Not a user (channel/group), skip
-            pass
-        elif not ai_state.is_approved(sender.id):
-            # Unapproved user in PM permit mode - let PM permit handler deal with it
-            return
+        if sender and isinstance(sender, User):
+            # If user is NOT approved, skip here (PM permit handler will respond)
+            if not ai_state.is_approved(sender.id):
+                return
+            # If user IS approved, they should be treated as normal users
+            # Only respond if regular AI or AI AFK is enabled
+            # (Don't auto-respond just because PM permit is on)
 
     if not in_aiafk and not in_regular_ai:
         return
