@@ -1,6 +1,5 @@
 # Conversation Engine - Prompt building and context management
 from typing import List, Dict, Optional
-import userbot
 
 
 class ConversationEngine:
