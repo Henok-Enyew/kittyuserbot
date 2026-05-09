@@ -1,6 +1,6 @@
 # NVIDIA AI Provider Implementation
 import aiohttp
-from typing import List, Dict
+from typing import List, Dict, Optional
 from .base import AIProvider
 
 
@@ -8,7 +8,18 @@ class NVIDIAProvider(AIProvider):
     """NVIDIA AI provider implementation"""
     
     API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-    DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
+    DEFAULT_MODEL = "meta/llama-3.1-70b-instruct"  # Updated default to 70B model
+    
+    def __init__(self, api_key: str = None, model: Optional[str] = None):
+        """
+        Initialize NVIDIA provider.
+        
+        Args:
+            api_key: NVIDIA API key
+            model: Optional model override (defaults to DEFAULT_MODEL)
+        """
+        super().__init__(api_key)
+        self.model = model or self.DEFAULT_MODEL
     
     def get_provider_name(self) -> str:
         return "NVIDIA AI"
@@ -36,7 +47,7 @@ class NVIDIAProvider(AIProvider):
         }
         
         payload = {
-            "model": self.DEFAULT_MODEL,
+            "model": self.model,  # Use instance model (configurable)
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,

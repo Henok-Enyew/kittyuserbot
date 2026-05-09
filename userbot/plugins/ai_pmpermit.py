@@ -293,6 +293,11 @@ async def aipmpermit_handler(event):
             max_tokens=350,
         )
 
+        # Handle empty responses
+        if not response or not response.strip():
+            LOGS.error(f"AI PM Permit: empty response for user {user_id}")
+            return  # Don't send empty message
+
         await event.reply(response)
 
         ai_state.add_to_history(chat_id, "user", message_text)

@@ -58,7 +58,16 @@ def get_ai_components():
             )
         
         try:
-            _ai_provider = get_ai_provider(current_provider, api_key)
+            # Get model configuration for NVIDIA
+            model = None
+            if current_provider == "nvidia":
+                model = _resolve_config("AI_MODEL")  # Read from config
+                if model:
+                    LOGS.info(f"Using configured NVIDIA model: {model}")
+                else:
+                    LOGS.info("Using default NVIDIA model: meta/llama-3.1-70b-instruct")
+            
+            _ai_provider = get_ai_provider(current_provider, api_key, model=model)
             LOGS.info(f"AI provider initialized: {_ai_provider.get_provider_name()}")
         except Exception as e:
             LOGS.error(f"Failed to initialize {current_provider} provider: {e}")
@@ -67,7 +76,7 @@ def get_ai_components():
                 LOGS.info("Falling back to Mistral provider...")
                 ai_state.set_provider("mistral")
                 api_key = _resolve_config("MISTRAL_API_KEY") or _resolve_config("AI_API_KEY")
-                _ai_provider = get_ai_provider("mistral", api_key)
+                _ai_provider = get_ai_provider("mistral", api_key, model=None)
             else:
                 raise
 
@@ -339,10 +348,23 @@ async def ask_ai(event):
     if reply and reply.message:
         # If replying to a message, include it in context
         replied_text = reply.message
+        sender_info = ""
+        
+        # Get sender info if available
+        try:
+            sender = await reply.get_sender()
+            if sender:
+                sender_name = getattr(sender, "first_name", "Someone")
+                sender_info = f" from {sender_name}"
+        except:
+            pass
+        
         if question:
-            question = f"{question}\n\nReferenced message: {replied_text}"
+            # Owner asking about a specific message
+            question = f"Context: Message{sender_info} says: \"{replied_text}\"\n\nQuestion: {question}"
         else:
-            question = f"Explain or analyze this message: {replied_text}"
+            # Owner asking for help with reply
+            question = f"I need help replying to this message{sender_info}: \"{replied_text}\"\n\nWhat should I say? Give me 2-3 reply options with different tones (casual, funny, savage)."
     elif not question:
         return await edit_delete(
             event,
@@ -351,7 +373,8 @@ async def ask_ai(event):
             "• `.ask what is my portfolio?`\n"
             "• `.ask what are my skills?`\n"
             "• `.ask explain quantum computing`\n"
-            "• Reply to a message: `.ask explain this`",
+            "• Reply to a message: `.ask` (for reply suggestions)\n"
+            "• Reply to a message: `.ask what does this mean?`",
             8
         )
     
@@ -381,18 +404,22 @@ async def ask_ai(event):
             max_tokens=500,
         )
         
+        # Handle empty responses
+        if not response or not response.strip():
+            LOGS.error("AI returned empty response")
+            return await thinking_msg.edit(
+                "❌ **AI returned an empty response. Please try again.**"
+            )
+        
         # Format the response nicely
         formatted_response = f"**🤖 AI Response:**\n\n{response}"
         
-        # If response is too long, split it
+        # Handle long responses (Telegram limit is 4096 chars)
         if len(formatted_response) > 4000:
-            # Send in chunks
-            await thinking_msg.edit(formatted_response[:4000])
-            remaining = formatted_response[4000:]
-            while remaining:
-                chunk = remaining[:4000]
-                await event.reply(chunk)
-                remaining = remaining[4000:]
+            # Truncate and add note
+            truncated = formatted_response[:3900]
+            formatted_response = truncated + "\n\n... _(response truncated due to length)_"
+            await thinking_msg.edit(formatted_response)
         else:
             await thinking_msg.edit(formatted_response)
         
@@ -400,7 +427,16 @@ async def ask_ai(event):
         
     except Exception as e:
         LOGS.error(f"AI ask command error: {e}")
-        await thinking_msg.edit(f"❌ **Error:** {str(e)}")
+        error_msg = str(e)
+        # Make error messages user-friendly
+        if "empty response" in error_msg.lower():
+            error_msg = "AI returned an empty response. Please try again."
+        elif "timeout" in error_msg.lower():
+            error_msg = "Request timed out. Please try again."
+        elif "api" in error_msg.lower() and "401" in error_msg:
+            error_msg = "API authentication failed. Check your API key."
+        
+        await thinking_msg.edit(f"❌ **Error:** {error_msg}")
 
 
 # ── AI AFK ────────────────────────────────────────────────────────────────────
@@ -540,6 +576,11 @@ async def ai_auto_respond(event):
             max_tokens=300,
         )
 
+        # Handle empty responses
+        if not response or not response.strip():
+            LOGS.error(f"AI returned empty response in chat {chat_id}")
+            return  # Don't send empty message
+
         await event.reply(response)
 
         ai_state.add_to_history(chat_id, "user", message_text)
@@ -551,6 +592,7 @@ async def ai_auto_respond(event):
 
     except Exception as e:
         LOGS.error(f"AI response error in {chat_id}: {e}")
+        # Don't send error message to user in auto-reply mode
 
 
 # ══════════════════════════════════════════════════════════════════════════════
