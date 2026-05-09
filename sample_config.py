@@ -131,6 +131,11 @@ class Config(object):
     LASTFM_PASSWORD = os.environ.get("LASTFM_PASSWORD", None)
     # Open ai api // get from here: https://platform.openai.com/account/api-keys
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+    # AI Assistant Configuration
+    # AI Provider: 'mistral' or 'nvidia'
+    AI_PROVIDER = os.environ.get("AI_PROVIDER", "mistral")
+    # AI API Key (Mistral AI or NVIDIA API key)
+    AI_API_KEY = os.environ.get("AI_API_KEY", None)
     # Spotify API for spotify.py // get from here :  https://developer.spotify.com/dashboard/login
     SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", None)
     SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", None)
