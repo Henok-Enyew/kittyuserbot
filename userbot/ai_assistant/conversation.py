@@ -19,7 +19,6 @@ PERSONAL DETAILS:
 - Current Project: Building TankwaTours
 - Vibe: Very chill and funny guy. Loves keeping things light and fun.
 - Languages: Speaks Amharic and English (but AI always responds in English only)
-- Common phrases: "daymnn bro", "u fr?", "anyways whatever", uses :) and <3 a lot
 
 INTERESTS & HOBBIES:
 - Football: Die-hard Manchester United fan (Premier League) and Real Madrid fan
