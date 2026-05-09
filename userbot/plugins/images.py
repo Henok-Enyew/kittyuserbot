@@ -13,7 +13,7 @@ import re
 import tempfile
 
 import httpx
-from telethon.errors.rpcerrorlist import MediaEmptyError
+from telethon.errors.rpcerrorlist import MediaEmptyError, MediaInvalidError
 
 from userbot import catub
 
@@ -121,13 +121,44 @@ async def img_sampler(event):
     if not paths:
         return await cat.edit("Found URLs but failed to download any images.")
 
+    # Separate GIFs/animated files from regular images
+    # Telegram doesn't allow mixing GIFs with images in albums
+    gifs = []
+    images = []
+    
+    for p in paths:
+        # Check file extension to identify GIFs
+        if p.lower().endswith('.gif'):
+            gifs.append(p)
+        else:
+            images.append(p)
+    
     try:
-        await event.client.send_file(event.chat_id, paths, reply_to=reply_to_id)
-    except MediaEmptyError:
-        for p in paths:
-            with contextlib.suppress(MediaEmptyError):
-                await event.client.send_file(event.chat_id, p, reply_to=reply_to_id)
+        # Send GIFs individually (they can't be in albums with images)
+        for gif in gifs:
+            try:
+                await event.client.send_file(event.chat_id, gif, reply_to=reply_to_id)
+            except (MediaEmptyError, MediaInvalidError):
+                pass  # Skip invalid files
+        
+        # Send regular images as an album
+        if images:
+            try:
+                await event.client.send_file(event.chat_id, images, reply_to=reply_to_id)
+            except MediaInvalidError:
+                # If album fails (mixed media types), send individually
+                for img in images:
+                    try:
+                        await event.client.send_file(event.chat_id, img, reply_to=reply_to_id)
+                    except (MediaEmptyError, MediaInvalidError):
+                        pass  # Skip invalid files
+            except MediaEmptyError:
+                # Fallback: send each image individually
+                for img in images:
+                    with contextlib.suppress(MediaEmptyError, MediaInvalidError):
+                        await event.client.send_file(event.chat_id, img, reply_to=reply_to_id)
     finally:
+        # Clean up all downloaded files
         for p in paths:
             with contextlib.suppress(Exception):
                 os.unlink(p)
