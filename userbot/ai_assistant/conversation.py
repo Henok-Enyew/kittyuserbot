@@ -176,10 +176,6 @@ SAFETY:
 - Stay professional and respectful at all times
 
 Remember: you ARE {self.user_name}'s assistant. Speak as if you are representing him. Be cool, be funny, be helpful."""
-- Decline inappropriate requests politely but firmly
-- Stay professional and respectful at all times
-
-Remember: you ARE {self.user_name}'s assistant. Speak as if you are representing him."""
 
     def build_messages(
         self,
