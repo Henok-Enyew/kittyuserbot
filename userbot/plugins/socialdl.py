@@ -41,7 +41,7 @@ async def _talk_to_bot(event, catevent, reply_to_id, bot_username, url,
     """
     1. Send /start outside conversation (fire and forget, just to wake the bot)
     2. Wait briefly for bot to process
-    3. Open fresh conversation, send URL only, collect all media responses
+    3. Open fresh conversation, send URL only, collect only media responses (skip promotional text)
     """
     media_list = []
 
@@ -64,43 +64,72 @@ async def _talk_to_bot(event, catevent, reply_to_id, bot_username, url,
             await event.client.send_read_acknowledge(conv.chat_id)
 
             # Collect all responses until timeout
+            all_messages = []
             while True:
                 try:
                     msg = await conv.get_response(timeout=more_timeout)
                     await event.client.send_read_acknowledge(conv.chat_id)
-                    media_list.append(msg)
+                    all_messages.append(msg)
                 except asyncio.TimeoutError:
                     break
 
-        if not media_list:
+        if not all_messages:
             await catevent.edit(
                 f"`@{bot_username} did not respond. Link may be private or unsupported.`"
             )
             return False
 
-        # Only keep messages with media
-        media_msgs = [m for m in media_list if m.media]
-        if not media_msgs:
-            err = media_list[-1].text if media_list else "No media received."
-            await catevent.edit(f"`{err[:300]}`")
+        # Filter: only keep messages with actual media (video, audio, document, photo)
+        # Skip stickers, GIFs, and text-only promotional messages
+        for msg in all_messages:
+            if msg.media:
+                # Check for actual downloadable media (not stickers/animated emojis)
+                if msg.video or msg.audio or msg.document or msg.photo:
+                    # Additional check: skip GIFs (they're documents with video mime type)
+                    if msg.document:
+                        # Skip if it's an animated sticker or GIF
+                        mime = getattr(msg.document, 'mime_type', '')
+                        if 'image/gif' in mime or msg.document.attributes:
+                            # Check if it's a sticker
+                            is_sticker = any(
+                                hasattr(attr, 'stickerset') 
+                                for attr in msg.document.attributes
+                            )
+                            if is_sticker:
+                                continue  # Skip stickers
+                    media_list.append(msg)
+
+        if not media_list:
+            # Check if there's an error message in text responses
+            text_messages = [m.text for m in all_messages if m.text and not m.media]
+            if text_messages:
+                # Look for error indicators
+                error_text = text_messages[-1]
+                if any(word in error_text.lower() for word in ['error', 'invalid', 'failed', 'not found', 'unsupported']):
+                    await catevent.edit("`Invalid link or unsupported source.`")
+                    return False
+            
+            await catevent.edit("`Couldn't get the media, try again.`")
             return False
 
-        # Forward to user's chat
+        # Forward media to user's chat
         await catevent.delete()
-        await event.client.send_file(
-            event.chat_id,
-            media_msgs,
-            reply_to=reply_to_id,
-        )
+        for media_msg in media_list:
+            await event.client.forward_messages(
+                event.chat_id,
+                media_msg,
+                from_peer=bot_username
+            )
+        
         if start_msg:
             await delete_conv(event, bot_username, start_msg)
         return True
 
     except asyncio.TimeoutError:
-        await catevent.edit(f"`Timed out waiting for @{bot_username}. Try again later.`")
+        await catevent.edit("`Couldn't get the media, try again.`")
         return False
     except Exception as e:
-        await catevent.edit(f"**Error:** `{e}`")
+        await catevent.edit(f"**Error:** `{str(e)[:200]}`")
         return False
 
 
