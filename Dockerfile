@@ -18,6 +18,9 @@ ENV TZ=Asia/Kolkata
 ## Copy files into the Docker image
 COPY . .
 
+# Pre-download rembg model to avoid slow first run
+RUN python3 -c "from rembg import new_session; new_session('u2net')" || true
+
 ENV PATH="/home/userbot/bin:$PATH"
 
 CMD ["python3","-m","userbot"]
