@@ -9,10 +9,11 @@
 
 import contextlib
 import html
+import json
 import os
 import re
 import tempfile
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from urllib.parse import unquote
 
 import httpx
@@ -34,15 +35,29 @@ BING_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Bing CDN thumbnails — not full-size images
-_THUMB_HOST_RE = re.compile(r"(\.bing\.net/th|ts\d\.mm\.bing\.net/th)", re.I)
+_THUMB_HOST_RE = re.compile(r"(\.bing\.net/th|ts\d+\.mm\.bing\.net/th)", re.I)
 
-# Structured tile: murl (full image) + t (title) from each result block
-_TILE_RE = re.compile(
-    r"&quot;murl&quot;:&quot;(https?://[^&]+?)&quot;"
-    r".*?"
-    r"&quot;t&quot;:&quot;((?:\\.|[^&])*)?&quot;",
-    re.DOTALL,
+# When user means people/models, penalize landscape/architecture false positives
+_LANDSCAPE_TERMS = {
+    "mountain", "mountains", "landscape", "scenery", "simien", "lalibela",
+    "terrain", "valley", "peak", "summit", "volcano", "waterfall", "nature",
+    "national park", "highlands", "plateau", "church", "monastery", "castle",
+    "map", "satellite", "aerial view", "panorama", "wildlife", "elephant",
+}
+
+_PERSON_TERMS = {
+    "model", "models", "portrait", "woman", "women", "man", "men", "girl",
+    "boy", "face", "person", "people", "beauty", "fashion", "runway",
+    "actress", "actor", "selfie", "headshot",
+}
+
+_AMBIGUOUS_MODEL_RE = re.compile(
+    r"\bmodels?\b", re.I
+)
+_MODEL_CONTEXT_RE = re.compile(
+    r"\b(fashion|portrait|runway|3d|car|architect|scale|role\s+model|"
+    r"ai\s+model|llm|anatomy|scientific|mathematical|data\s+model)\b",
+    re.I,
 )
 
 
@@ -60,7 +75,9 @@ def _parse_img_args(raw: str) -> Tuple[int, str]:
 def _decode_bing_text(value: str) -> str:
     if not value:
         return ""
-    return html.unescape(value.replace("\\'", "'").replace('\\"', '"'))
+    cleaned = html.unescape(value.replace("\\'", "'").replace('\\"', '"'))
+    # Bing highlights query terms with private-use chars — strip them
+    return re.sub(r"[\ue000-\uf8ff]", "", cleaned).strip()
 
 
 def _normalize_image_url(url: str) -> str:
@@ -69,47 +86,118 @@ def _normalize_image_url(url: str) -> str:
     return url.replace("&amp;", "&")
 
 
-def _relevance_score(query: str, title: str) -> int:
-    """Higher score = more likely relevant to the search query."""
-    q_terms = {w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 1}
+def _refine_query(query: str) -> str:
+    """
+    Reduce ambiguous Bing results.
+    'ethiopian models' often returns landscapes/3D/architecture — bias toward portraits.
+    """
+    q = query.strip()
+    if not q:
+        return q
+    if _AMBIGUOUS_MODEL_RE.search(q) and not _MODEL_CONTEXT_RE.search(q):
+        return f"{q} portrait fashion"
+    return q
+
+
+def _query_wants_people(query: str) -> bool:
+    lower = query.lower()
+    if _AMBIGUOUS_MODEL_RE.search(lower):
+        return True
+    return any(term in lower for term in ("portrait", "woman", "man", "face", "selfie", "beauty"))
+
+
+def _relevance_score(query: str, title: str, desc: str = "", page_url: str = "") -> int:
+    """Score how well a result matches the query."""
+    blob = " ".join([title, desc, page_url]).lower()
+    q_lower = query.lower()
+
+    q_terms = {w for w in re.findall(r"[a-z0-9]+", q_lower) if len(w) > 1}
     if not q_terms:
         return 0
-    title_l = title.lower()
-    title_terms = set(re.findall(r"[a-z0-9]+", title_l))
-    overlap = len(q_terms & title_terms)
-    # Bonus when full query phrase appears in title
-    phrase_bonus = 2 if query.lower() in title_l else 0
-    return overlap * 3 + phrase_bonus
+
+    blob_terms = set(re.findall(r"[a-z0-9]+", blob))
+    overlap = len(q_terms & blob_terms)
+    score = overlap * 4
+
+    # Phrase / partial phrase bonuses
+    if q_lower in blob:
+        score += 8
+    else:
+        for term in q_terms:
+            if len(term) >= 4 and term in blob:
+                score += 1
+
+    # Person-query boosts & landscape penalties
+    if _query_wants_people(query):
+        if any(t in blob for t in _PERSON_TERMS):
+            score += 6
+        if any(t in blob for t in _LANDSCAPE_TERMS):
+            score -= 12
+
+    return score
 
 
-def _extract_bing_tiles(page_html: str) -> List[Tuple[str, str, int]]:
-    """Return [(url, title, score), ...] from Bing image result tiles."""
-    seen = set()
-    ranked: List[Tuple[str, str, int]] = []
+def _extract_bing_tiles(page_html: str) -> List[Dict[str, str]]:
+    """
+    Parse Bing image tiles from m="..." JSON attributes.
+    Keeps murl + title + desc paired correctly (unlike loose regex).
+    """
+    results: List[Dict[str, str]] = []
+    seen_urls = set()
 
-    for murl_raw, title_raw in _TILE_RE.findall(page_html):
-        url = _normalize_image_url(murl_raw)
-        title = _decode_bing_text(title_raw)
+    for match in re.finditer(r'\sm="\{&quot;', page_html):
+        start = match.start() + 4  # after m="
+        end = page_html.find('}"', start)
+        if end == -1:
+            continue
+        raw_json = page_html[start : end + 1]
+        try:
+            obj = json.loads(html.unescape(raw_json.replace("&quot;", '"')))
+        except json.JSONDecodeError:
+            continue
 
+        url = _normalize_image_url(obj.get("murl") or "")
         if not url.startswith("http"):
             continue
         if _THUMB_HOST_RE.search(url):
             continue
-        if url in seen:
+        if url in seen_urls:
             continue
-        seen.add(url)
-        ranked.append((url, title, 0))
+        seen_urls.add(url)
 
-    return ranked
+        results.append(
+            {
+                "url": url,
+                "title": _decode_bing_text(obj.get("t") or ""),
+                "desc": _decode_bing_text(obj.get("desc") or ""),
+                "page": _decode_bing_text(obj.get("purl") or ""),
+            }
+        )
+
+    return results
 
 
-def _rank_tiles(query: str, tiles: List[Tuple[str, str, int]]) -> List[str]:
-    """Sort tiles by title/query relevance and return image URLs."""
-    q = query.strip()
-    scored = [(_relevance_score(q, title), url) for url, title, _ in tiles]
+def _rank_tiles(query: str, tiles: List[Dict[str, str]]) -> List[str]:
+    """Sort tiles by relevance; drop obvious junk when better matches exist."""
+    scored = []
+    for tile in tiles:
+        s = _relevance_score(
+            query,
+            tile.get("title", ""),
+            tile.get("desc", ""),
+            tile.get("page", ""),
+        )
+        scored.append((s, tile["url"]))
+
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    urls = []
+    if scored and scored[0][0] > 0:
+        # Drop clearly irrelevant results when we have good matches
+        top = scored[0][0]
+        min_keep = max(0, top - 8)
+        scored = [(s, u) for s, u in scored if s >= min_keep]
+
+    urls: List[str] = []
     seen = set()
     for _score, url in scored:
         if url not in seen:
@@ -118,40 +206,71 @@ def _rank_tiles(query: str, tiles: List[Tuple[str, str, int]]) -> List[str]:
     return urls
 
 
-async def bing_image_search(query: str, limit: int = 3) -> list:
-    """Search Bing Images and return up to `limit` relevant image URLs."""
-    query = query.strip()
-    if not query:
-        return []
-
-    fetch_count = min(max(limit * 4, 20), 35)
+async def _fetch_bing_html(client: httpx.AsyncClient, query: str, *, face_bias: bool = False) -> str:
     params = {
         "q": query,
         "first": 0,
-        "count": fetch_count,
+        "count": 35,
         "adlt": "moderate",
-        # Prefer actual photos over clipart/icons for better accuracy
+        "setlang": "en",
+        "mkt": "en-US",
         "qft": "+filterui:photo-photo",
     }
+    if face_bias:
+        params["qft"] = "+filterui:photo-photo+filterui:face-face"
+
+    r = await client.get("https://www.bing.com/images/async", params=params)
+    r.raise_for_status()
+    return r.text
+
+
+async def bing_image_search(query: str, limit: int = 3) -> list:
+    """Search Bing Images and return up to `limit` relevant image URLs."""
+    original_query = query.strip()
+    if not original_query:
+        return []
+
+    search_query = _refine_query(original_query)
+    face_bias = _query_wants_people(original_query)
 
     async with httpx.AsyncClient(
         headers=BING_HEADERS, follow_redirects=True, timeout=20
     ) as client:
-        r = await client.get("https://www.bing.com/images/async", params=params)
-        r.raise_for_status()
-        page_html = r.text
+        page_html = await _fetch_bing_html(client, search_query, face_bias=face_bias)
+        tiles = _extract_bing_tiles(page_html)
+        urls = _rank_tiles(original_query, tiles)
 
-    tiles = _extract_bing_tiles(page_html)
-    urls = _rank_tiles(query, tiles)
+        # Retry without face filter if too few results
+        if len(urls) < limit and face_bias:
+            page_html = await _fetch_bing_html(client, search_query, face_bias=False)
+            tiles = _extract_bing_tiles(page_html)
+            urls = _rank_tiles(original_query, tiles)
 
-    # Fallback: legacy regex if tile parser finds nothing (Bing markup change)
-    if not urls:
-        legacy = re.findall(
-            r"&quot;murl&quot;:&quot;(https?://[^&]+?)&quot;", page_html
-        )
-        for raw in legacy:
-            url = _normalize_image_url(raw)
-            if url.startswith("http") and not _THUMB_HOST_RE.search(url):
+        # Retry original query without refinement
+        if len(urls) < limit and search_query != original_query:
+            page_html = await _fetch_bing_html(client, original_query, face_bias=False)
+            tiles = _extract_bing_tiles(page_html)
+            extra = _rank_tiles(original_query, tiles)
+            for url in extra:
+                if url not in urls:
+                    urls.append(url)
+
+        # Last resort: main search page
+        if len(urls) < limit:
+            r = await client.get(
+                "https://www.bing.com/images/search",
+                params={
+                    "q": search_query,
+                    "form": "HDRSC2",
+                    "first": 1,
+                    "count": 35,
+                    "adlt": "moderate",
+                    "qft": "+filterui:photo-photo",
+                },
+            )
+            tiles = _extract_bing_tiles(r.text)
+            extra = _rank_tiles(original_query, tiles)
+            for url in extra:
                 if url not in urls:
                     urls.append(url)
 
@@ -205,6 +324,7 @@ async def download_images(urls: list) -> list:
             "{tr}img 10 catuserbot",
             "{tr}img catuserbot",
             "{tr}img 7 cats",
+            "{tr}img ethiopian fashion models",
         ],
     },
 )
