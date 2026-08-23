@@ -283,8 +283,10 @@ async def aipmpermit_handler(event):
             is_new_chat=is_new,
             is_afk=False,
             afk_reason=None,
-            style_examples=None,   # no style mimicry in gatekeeper mode
-            is_pmpermit=True,      # inject gatekeeper context
+            style_examples=None,
+            is_pmpermit=True,
+            include_full_profile=True,
+            friends=ai_state.get_friends(),
         )
 
         response = await provider.generate_response(

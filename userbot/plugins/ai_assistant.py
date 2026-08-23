@@ -11,6 +11,7 @@ from userbot import catub
 from userbot.core.logger import logging
 from userbot.core.managers import edit_delete, edit_or_reply
 from userbot.ai_assistant import get_ai_provider, ConversationEngine
+from userbot.ai_assistant.conversation import extract_friend_names
 from userbot.ai_assistant.state import ai_state
 
 # "utils" is a recognised GRP_INFO category; "ai" is not in the list
@@ -201,6 +202,7 @@ async def ai_status(event):
         f"**Disabled chats:** {len(ai_state.disabled_chats)}\n"
         f"**Known chats:** {len(ai_state.known_chats)}\n"
         f"**Style examples:** {len(ai_state.user_style_examples)}\n"
+        f"**Friends remembered:** {len(ai_state.get_friends())}\n"
         f"**User:** {user_name}"
     )
     await edit_or_reply(event, msg)
@@ -387,15 +389,17 @@ async def ask_ai(event):
         return await thinking_msg.edit(f"❌ **AI not configured:** {str(e)}")
     
     try:
-        # Build messages for direct query (no chat history, fresh context)
+        # Direct query: full profile so personal/career questions are accurate
         messages = conv_engine.build_messages(
             current_message=question,
-            chat_history=None,  # No history for direct queries
+            chat_history=None,
             is_new_chat=False,
             is_afk=False,
             afk_reason=None,
-            style_examples=None,  # No style mimicry for direct queries
+            style_examples=None,
             is_pmpermit=False,
+            include_full_profile=True,
+            friends=ai_state.get_friends(),
         )
         
         response = await provider.generate_response(
@@ -568,6 +572,7 @@ async def ai_auto_respond(event):
             is_afk=is_afk,
             afk_reason=afk_reason,
             style_examples=ai_state.get_style_examples(limit=3),
+            friends=ai_state.get_friends(),
         )
 
         response = await provider.generate_response(
@@ -622,7 +627,9 @@ async def on_outgoing_message(event):
             except Exception:
                 pass  # Non-critical, never crash here
 
-    # ── Style learning ─────────────────────────────────────────────────────
+    # ── Style learning + friend memory ─────────────────────────────────────
     # Skip commands and very short messages
     if text and not text.startswith(".") and len(text) >= 5:
         ai_state.add_user_style_example(text)
+        for friend_name in extract_friend_names(text):
+            ai_state.add_friend(friend_name)
