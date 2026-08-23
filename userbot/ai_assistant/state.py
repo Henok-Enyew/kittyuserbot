@@ -1,6 +1,6 @@
 # State Management for AI Assistant
 import time
-from typing import Set, Dict, Optional
+from typing import Set, Dict, Optional, List
 from collections import defaultdict
 
 
@@ -8,6 +8,7 @@ class AIState:
     """
     Manages AI assistant state across chats.
     Tracks enabled chats, known chats, cooldowns, and user style.
+    Chat history, style examples, and friends persist to Postgres when available.
     """
 
     def __init__(self):
@@ -30,6 +31,10 @@ class AIState:
         # User style examples (recent messages sent by user)
         self.user_style_examples: list = []
 
+        # Friend memory: list of {"name", "note"}
+        self.friends: List[Dict[str, str]] = []
+        self.max_friends: int = 30
+
         # ── AI AFK state (separate from the built-in .afk system) ──────────
         self.aiafk_enabled: bool = False
         self.aiafk_reason: Optional[str] = None
@@ -50,6 +55,9 @@ class AIState:
         self.max_history_per_chat: int = 10
         self.max_style_examples: int = 20
 
+        # Persistable memory (soft-fail if DB unavailable)
+        self._load_persisted_memory()
+
     def _load_approved_users(self):
         """Load approved users from database on startup."""
         try:
@@ -59,6 +67,27 @@ class AIState:
                 self.approved_users = {int(user.user_id) for user in approved}
         except Exception:
             # Database might not be available yet or table doesn't exist
+            pass
+
+    def _load_persisted_memory(self):
+        """Load chat history, style examples, and friends from Postgres."""
+        try:
+            from userbot.sql_helper import ai_memory_sql as mem
+
+            history = mem.load_all_history(self.max_history_per_chat)
+            if history:
+                for chat_id, msgs in history.items():
+                    self.conversation_history[chat_id] = list(msgs)
+                    self.known_chats.add(chat_id)
+
+            styles = mem.load_style_examples(self.max_style_examples)
+            if styles:
+                self.user_style_examples = list(styles)
+
+            friends = mem.load_friends(self.max_friends)
+            if friends:
+                self.friends = list(friends)
+        except Exception:
             pass
 
     # ── Global / per-chat toggles ──────────────────────────────────────────
@@ -174,12 +203,22 @@ class AIState:
             self.conversation_history[chat_id] = (
                 self.conversation_history[chat_id][-self.max_history_per_chat:]
             )
+        try:
+            from userbot.sql_helper.ai_memory_sql import append_history
+            append_history(chat_id, role, content, self.max_history_per_chat)
+        except Exception:
+            pass
 
     def get_history(self, chat_id: int) -> list:
         return self.conversation_history[chat_id]
 
     def clear_history(self, chat_id: int):
         self.conversation_history.pop(chat_id, None)
+        try:
+            from userbot.sql_helper.ai_memory_sql import clear_history_db
+            clear_history_db(chat_id)
+        except Exception:
+            pass
 
     # ── Style learning ────────────────────────────────────────────────────
 
@@ -188,9 +227,58 @@ class AIState:
             self.user_style_examples.append(message)
             if len(self.user_style_examples) > self.max_style_examples:
                 self.user_style_examples = self.user_style_examples[-self.max_style_examples:]
+            try:
+                from userbot.sql_helper.ai_memory_sql import append_style_example
+                append_style_example(message, self.max_style_examples)
+            except Exception:
+                pass
 
     def get_style_examples(self, limit: int = 5) -> list:
         return self.user_style_examples[-limit:] if self.user_style_examples else []
+
+    # ── Friend memory ─────────────────────────────────────────────────────
+
+    def add_friend(self, name: str, note: str = "") -> bool:
+        """Remember a friend name (RAM + DB)."""
+        if not name or not name.strip():
+            return False
+        display = name.strip()
+        key = display.lower()
+        for f in self.friends:
+            if f.get("name", "").lower() == key:
+                if note:
+                    f["note"] = note
+                try:
+                    from userbot.sql_helper.ai_memory_sql import upsert_friend
+                    upsert_friend(display, note or f.get("note", ""), self.max_friends)
+                except Exception:
+                    pass
+                return True
+        self.friends.append({"name": display, "note": note or ""})
+        if len(self.friends) > self.max_friends:
+            self.friends = self.friends[-self.max_friends:]
+        try:
+            from userbot.sql_helper.ai_memory_sql import upsert_friend
+            upsert_friend(display, note or "", self.max_friends)
+        except Exception:
+            pass
+        return True
+
+    def get_friends(self) -> List[Dict[str, str]]:
+        return list(self.friends)
+
+    def forget_friend(self, name: str) -> bool:
+        if not name:
+            return False
+        key = name.strip().lower()
+        before = len(self.friends)
+        self.friends = [f for f in self.friends if f.get("name", "").lower() != key]
+        try:
+            from userbot.sql_helper.ai_memory_sql import delete_friend
+            delete_friend(name)
+        except Exception:
+            pass
+        return len(self.friends) < before
 
     # ── AI Provider Management ────────────────────────────────────────────
 
