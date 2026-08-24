@@ -7,23 +7,21 @@
 # .ina  - Instagram audio via @ttsavebot
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-import asyncio
-
-from telethon.errors.rpcerrorlist import YouBlockedUserError
-from telethon.tl.functions.contacts import UnblockRequest as unblock
 from urlextract import URLExtract
 
 from userbot import catub
 
 from ..core.managers import edit_delete, edit_or_reply
-from ..helpers.functions import delete_conv
+from ..helpers.functions.clip_router import (
+    TT_SAVE_BOT,
+    YTB_AUDIO_BOT,
+    extract_url,
+    talk_to_bot,
+)
 from ..helpers.utils import reply_id
 
 plugin_category = "misc"
 extractor = URLExtract()
-
-YTB_AUDIO_BOT = "YtbAudioBot"
-TT_SAVE_BOT = "ttsavebot"
 
 
 async def _get_url(event):
@@ -32,112 +30,14 @@ async def _get_url(event):
     if not msg and event.is_reply:
         reply = await event.get_reply_message()
         msg = reply.text or ""
-    urls = extractor.find_urls(msg)
-    return urls[0] if urls else None
-
-
-async def _talk_to_bot(event, catevent, reply_to_id, bot_username, url,
-                       first_timeout=90, more_timeout=5):
-    """
-    1. Send /start outside conversation (fire and forget, just to wake the bot)
-    2. Wait briefly for bot to process
-    3. Open fresh conversation, send URL only, collect only media responses (skip promotional text)
-    """
-    media_list = []
-
-    try:
-        # Step 1: wake the bot with /start outside any conversation
-        try:
-            start_msg = await event.client.send_message(bot_username, "/start")
-        except YouBlockedUserError:
-            await catub(unblock(bot_username))
-            start_msg = await event.client.send_message(bot_username, "/start")
-        except Exception:
-            start_msg = None
-
-        # Step 2: give bot time to process /start before we open conversation
-        await asyncio.sleep(3)
-
-        # Step 3: open fresh conversation and send URL only
-        async with event.client.conversation(bot_username, timeout=first_timeout) as conv:
-            await conv.send_message(url)
-            await event.client.send_read_acknowledge(conv.chat_id)
-
-            # Collect all responses until timeout
-            all_messages = []
-            while True:
-                try:
-                    msg = await conv.get_response(timeout=more_timeout)
-                    await event.client.send_read_acknowledge(conv.chat_id)
-                    all_messages.append(msg)
-                except asyncio.TimeoutError:
-                    break
-
-        if not all_messages:
-            await catevent.edit(
-                f"`@{bot_username} did not respond. Link may be private or unsupported.`"
-            )
-            return False
-
-        # Filter: only keep messages with actual media (video, audio, document, photo)
-        # Skip stickers, GIFs, and text-only promotional messages
-        for msg in all_messages:
-            if msg.media:
-                # Check for actual downloadable media (not stickers/animated emojis)
-                if msg.video or msg.audio or msg.document or msg.photo:
-                    # Additional check: skip GIFs (they're documents with video mime type)
-                    if msg.document:
-                        # Skip if it's an animated sticker or GIF
-                        mime = getattr(msg.document, 'mime_type', '')
-                        if 'image/gif' in mime or msg.document.attributes:
-                            # Check if it's a sticker
-                            is_sticker = any(
-                                hasattr(attr, 'stickerset') 
-                                for attr in msg.document.attributes
-                            )
-                            if is_sticker:
-                                continue  # Skip stickers
-                    media_list.append(msg)
-
-        if not media_list:
-            # Check if there's an error message in text responses
-            text_messages = [m.text for m in all_messages if m.text and not m.media]
-            if text_messages:
-                # Look for error indicators
-                error_text = text_messages[-1]
-                if any(word in error_text.lower() for word in ['error', 'invalid', 'failed', 'not found', 'unsupported']):
-                    await catevent.edit("`Invalid link or unsupported source.`")
-                    return False
-            
-            await catevent.edit("`Couldn't get the media, try again.`")
-            return False
-
-        # Forward media to user's chat
-        await catevent.delete()
-        for media_msg in media_list:
-            await event.client.forward_messages(
-                event.chat_id,
-                media_msg,
-                from_peer=bot_username
-            )
-        
-        if start_msg:
-            await delete_conv(event, bot_username, start_msg)
-        return True
-
-    except asyncio.TimeoutError:
-        await catevent.edit("`Couldn't get the media, try again.`")
-        return False
-    except Exception as e:
-        await catevent.edit(f"**Error:** `{str(e)[:200]}`")
-        return False
+    return extract_url(msg)
 
 
 # ---------------------------------------------------------------------------
 # .yta — YouTube audio via @YtbAudioBot
 # ---------------------------------------------------------------------------
 @catub.cat_cmd(
-    pattern="yta(?:\s|$)([\s\S]*)",
+    pattern=r"yta(?:\s|$)([\s\S]*)",
     command=("yta", plugin_category),
     info={
         "header": "Download YouTube audio.",
@@ -155,9 +55,8 @@ async def yta_cmd(event):
         return await edit_delete(event, "`That doesn't look like a YouTube URL.`")
     catevent = await edit_or_reply(event, "`Fetching YouTube audio...`")
     reply_to_id = await reply_id(event)
-    await _talk_to_bot(
-        event, catevent, reply_to_id,
-        YTB_AUDIO_BOT, url,
+    await talk_to_bot(
+        event, catevent, YTB_AUDIO_BOT, url,
         first_timeout=120, more_timeout=10,
     )
 
@@ -166,7 +65,7 @@ async def yta_cmd(event):
 # .ttv — TikTok video via @ttsavebot
 # ---------------------------------------------------------------------------
 @catub.cat_cmd(
-    pattern="ttv(?:\s|$)([\s\S]*)",
+    pattern=r"ttv(?:\s|$)([\s\S]*)",
     command=("ttv", plugin_category),
     info={
         "header": "Download TikTok video.",
@@ -183,10 +82,8 @@ async def ttv_cmd(event):
     if "tiktok.com" not in url:
         return await edit_delete(event, "`That doesn't look like a TikTok URL.`")
     catevent = await edit_or_reply(event, "`Fetching TikTok video...`")
-    reply_to_id = await reply_id(event)
-    await _talk_to_bot(
-        event, catevent, reply_to_id,
-        TT_SAVE_BOT, url,
+    await talk_to_bot(
+        event, catevent, TT_SAVE_BOT, url,
         first_timeout=90, more_timeout=5,
     )
 
@@ -195,7 +92,7 @@ async def ttv_cmd(event):
 # .tta — TikTok audio via @ttsavebot
 # ---------------------------------------------------------------------------
 @catub.cat_cmd(
-    pattern="tta(?:\s|$)([\s\S]*)",
+    pattern=r"tta(?:\s|$)([\s\S]*)",
     command=("tta", plugin_category),
     info={
         "header": "Download TikTok audio.",
@@ -212,10 +109,8 @@ async def tta_cmd(event):
     if "tiktok.com" not in url:
         return await edit_delete(event, "`That doesn't look like a TikTok URL.`")
     catevent = await edit_or_reply(event, "`Fetching TikTok audio...`")
-    reply_to_id = await reply_id(event)
-    await _talk_to_bot(
-        event, catevent, reply_to_id,
-        TT_SAVE_BOT, url,
+    await talk_to_bot(
+        event, catevent, TT_SAVE_BOT, url,
         first_timeout=90, more_timeout=5,
     )
 
@@ -224,7 +119,7 @@ async def tta_cmd(event):
 # .inv — Instagram video via @ttsavebot
 # ---------------------------------------------------------------------------
 @catub.cat_cmd(
-    pattern="inv(?:\s|$)([\s\S]*)",
+    pattern=r"inv(?:\s|$)([\s\S]*)",
     command=("inv", plugin_category),
     info={
         "header": "Download Instagram video.",
@@ -241,10 +136,8 @@ async def inv_cmd(event):
     if "instagram.com" not in url:
         return await edit_delete(event, "`That doesn't look like an Instagram URL.`")
     catevent = await edit_or_reply(event, "`Fetching Instagram video...`")
-    reply_to_id = await reply_id(event)
-    await _talk_to_bot(
-        event, catevent, reply_to_id,
-        TT_SAVE_BOT, url,
+    await talk_to_bot(
+        event, catevent, TT_SAVE_BOT, url,
         first_timeout=90, more_timeout=5,
     )
 
@@ -253,7 +146,7 @@ async def inv_cmd(event):
 # .ina — Instagram audio via @ttsavebot
 # ---------------------------------------------------------------------------
 @catub.cat_cmd(
-    pattern="ina(?:\s|$)([\s\S]*)",
+    pattern=r"ina(?:\s|$)([\s\S]*)",
     command=("ina", plugin_category),
     info={
         "header": "Download Instagram audio.",
@@ -270,9 +163,7 @@ async def ina_cmd(event):
     if "instagram.com" not in url:
         return await edit_delete(event, "`That doesn't look like an Instagram URL.`")
     catevent = await edit_or_reply(event, "`Fetching Instagram audio...`")
-    reply_to_id = await reply_id(event)
-    await _talk_to_bot(
-        event, catevent, reply_to_id,
-        TT_SAVE_BOT, url,
+    await talk_to_bot(
+        event, catevent, TT_SAVE_BOT, url,
         first_timeout=90, more_timeout=5,
     )

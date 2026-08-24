@@ -401,6 +401,7 @@ async def ask_ai(event):
             include_full_profile=True,
             is_owner_direct=True,
             friends=ai_state.get_friends(),
+            owner_notes=ai_state.get_owner_notes(limit=10),
         )
         
         response = await provider.generate_response(
@@ -574,6 +575,7 @@ async def ai_auto_respond(event):
             afk_reason=afk_reason,
             style_examples=ai_state.get_style_examples(limit=3),
             friends=ai_state.get_friends(),
+            owner_notes=ai_state.get_owner_notes(limit=10),
         )
 
         response = await provider.generate_response(
