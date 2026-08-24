@@ -32,9 +32,14 @@ ENV = bool(os.environ.get("ENV", False))
 
 async def _init() -> None:
     sudousers = _sudousers_list()
-    Config.SUDO_USERS.clear()
-    for user_d in sudousers:
-        Config.SUDO_USERS.add(user_d)
+    # Config.SUDO_USERS may be a set() or a list [] depending on the config file
+    if isinstance(Config.SUDO_USERS, set):
+        Config.SUDO_USERS.clear()
+        for user_d in sudousers:
+            Config.SUDO_USERS.add(user_d)
+    else:
+        Config.SUDO_USERS.clear()
+        Config.SUDO_USERS.extend(sudousers)
 
 
 def get_key(val):
@@ -248,7 +253,7 @@ async def _(event):  # sourcery no-metrics  # sourcery skip: low-code-quality
             + ["gauth"]
             + ["greset"]
         )
-        flagcmds = flagcmds + PLG_INFO["heroku"] if ENV else flagcmds + PLG_INFO["vps"]
+        flagcmds = flagcmds + PLG_INFO.get("heroku", []) if ENV else flagcmds + PLG_INFO.get("vps", [])
         loadcmds = list(set(totalcmds) - set(flagcmds))
         if len(sudocmds) > 0:
             sqllist.del_keyword_list("sudo_enabled_cmds")
@@ -349,7 +354,7 @@ async def _(event):  # sourcery no-metrics  # sourcery skip: low-code-quality
             + ["gauth"]
             + ["greset"]
         )
-        flagcmds = flagcmds + PLG_INFO["heroku"] if ENV else flagcmds + PLG_INFO["vps"]
+        flagcmds = flagcmds + PLG_INFO.get("heroku", []) if ENV else flagcmds + PLG_INFO.get("vps", [])
     elif input_str[0] == "-p":
         catevent = event
         input_str.remove("-p")
