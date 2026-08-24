@@ -19,6 +19,11 @@ from ..utils.utils import runcmd
 
 LOGS = logging.getLogger(__name__)
 
+try:
+    _RESAMPLE = Image.Resampling.LANCZOS
+except AttributeError:
+    _RESAMPLE = Image.LANCZOS
+
 
 async def r_frames(image, w, h, outframes):
     for i in range(1, w, w // 30):
@@ -60,7 +65,7 @@ async def ud_frames(image, w, h, outframes, flip=False):
 
 
 async def spin_frames(image, w, h, outframes):
-    image.thumbnail((512, 512), Image.ANTIALIAS)
+    image.thumbnail((512, 512), _RESAMPLE)
     img = Image.new("RGB", (512, 512), "black")
     img.paste(image, ((512 - w) // 2, (512 - h) // 2))
     image = img

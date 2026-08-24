@@ -101,24 +101,35 @@ async def song_download(url, event, quality="128k", video=False, title=True):
         media_ext = ["mp4", "mkv"]
         media_cmd = video_dl.format(video_link=url)
 
-    with contextlib.suppress(Exception):
-        stderr = (await runcmd(media_cmd))[1]
-        media_name, stderr = (await runcmd(name_cmd))[:2]
-        if stderr:
-            return await edit_or_reply(event, f"**Error ::** `{stderr}`")
-        media_name = os.path.splitext(media_name)[0]
+    try:
+        _, dl_err = await runcmd(media_cmd)
+        if dl_err:
+            err_text = dl_err.decode() if isinstance(dl_err, bytes) else str(dl_err)
+            if err_text.strip():
+                return await edit_or_reply(event, f"**Error ::** `{err_text.strip()}`")
+
+        stdout, stderr = await runcmd(name_cmd)
+        media_name_raw = (stdout or b"").decode().strip()
+        if not media_name_raw:
+            err_text = (stderr or b"").decode().strip() if stderr else "download failed"
+            return await edit_or_reply(event, f"**Error ::** `{err_text}`")
+
+        media_name = os.path.splitext(media_name_raw)[0]
         media_file = Path(f"{media_name}.{media_ext[0]}")
-    if not os.path.exists(media_file):
-        media_file = Path(f"{media_name}.{media_ext[1]}")
-    elif not os.path.exists(media_file):
-        return await edit_or_reply(
-            event, f"__Sorry!.. I'm unable to find your requested {media_type}.__"
-        )
+        if not media_file.exists():
+            media_file = Path(f"{media_name}.{media_ext[1]}")
+        if not media_file.exists():
+            return await edit_or_reply(
+                event, f"__Sorry!.. I'm unable to find your requested {media_type}.__"
+            )
+    except Exception as e:
+        return await edit_or_reply(event, f"**Error ::** `{e}`")
+
     await edit_or_reply(event, f"__Uploading requested {media_type}...__")
     media_thumb = Path(f"{media_name}.jpg")
-    if not os.path.exists(media_thumb):
+    if not media_thumb.exists():
         media_thumb = Path(f"{media_name}.webp")
-    elif not os.path.exists(media_thumb):
+    if not media_thumb.exists():
         media_thumb = None
     if title:
         media_title = media_name.replace("./temp/", "").replace("_", "|")

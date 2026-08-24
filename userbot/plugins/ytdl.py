@@ -41,6 +41,7 @@ from ..helpers.functions import delete_conv
 from ..helpers.functions.utube import _mp3Dl, get_yt_video_id, get_ytthumb, ytsearch
 from ..helpers.utils import _format
 from . import catub
+from .socialdl import TT_SAVE_BOT, _talk_to_bot
 
 BASE_YT_URL = "https://www.youtube.com/watch?v="
 extractor = URLExtract()
@@ -276,6 +277,61 @@ async def download_video(event):
     )
 
 
+def _clean_insta_url(raw_link: str) -> str:
+    urls = extractor.find_urls(raw_link or "")
+    link = urls[0] if urls else (raw_link or "").strip()
+    if "?" in link:
+        link = link.split("?", 1)[0]
+    return link.rstrip("/")
+
+
+def _is_sendable_insta_media(msg) -> bool:
+    """True only for photo/video/audio/document we can forward or upload."""
+    if not msg or not msg.media:
+        return False
+    if msg.photo or msg.video or msg.video_note or msg.audio:
+        return True
+    if not msg.document:
+        return False
+    mime = getattr(msg.document, "mime_type", "") or ""
+    if mime.startswith("video/") or mime.startswith("image/"):
+        for attr in msg.document.attributes or []:
+            if hasattr(attr, "stickerset"):
+                return False
+        return True
+    return False
+
+
+async def _forward_insta_media(event, bot_username, messages):
+    valid = [m for m in messages if _is_sendable_insta_media(m)]
+    if not valid:
+        return False
+    await event.client.forward_messages(
+        event.chat_id,
+        valid if len(valid) > 1 else valid[0],
+        from_peer=bot_username,
+    )
+    return True
+
+
+async def _collect_bot_media(event, conv, first_timeout=10, more_timeout=2):
+    messages = []
+    try:
+        first = await conv.get_response(timeout=first_timeout)
+        await event.client.send_read_acknowledge(conv.chat_id)
+        messages.append(first)
+        while True:
+            try:
+                nxt = await conv.get_response(timeout=more_timeout)
+                await event.client.send_read_acknowledge(conv.chat_id)
+                messages.append(nxt)
+            except asyncio.TimeoutError:
+                break
+    except asyncio.TimeoutError:
+        pass
+    return messages
+
+
 @catub.cat_cmd(
     pattern="insta(?: |$)([\s\S]*)",
     command=("insta", plugin_category),
@@ -299,74 +355,75 @@ async def insta_dl(event):
         return await edit_delete(
             event, "` I need a Instagram link to download it's Video...`(*_*)", 10
         )
-    # v1 = "@instasave_bot"
-    # v1 = "@IgGramBot"
-    v1 = "Fullsavebot"
-    v2 = "@videomaniacbot"
-    media_list = []
+
+    link = _clean_insta_url(link)
     catevent = await edit_or_reply(event, "**Downloading.....**")
-    async with event.client.conversation(v1) as conv:
+    reply_to_id = await reply_id(event)
+
+    # Primary: reliable bot flow used by .inv
+    if await _talk_to_bot(
+        event,
+        catevent,
+        reply_to_id,
+        TT_SAVE_BOT,
+        link,
+        first_timeout=90,
+        more_timeout=5,
+    ):
+        return
+
+    await edit_or_reply(catevent, "**Trying alternate source...**")
+    v1 = "Fullsavebot"
+    async with event.client.conversation(v1, timeout=90) as conv:
         try:
             v1_flag = await conv.send_message("/start")
         except YouBlockedUserError:
-            await catub(unblock("Fullsavebot"))
+            await catub(unblock(v1))
             v1_flag = await conv.send_message("/start")
         checker = await conv.get_response()
         await event.client.send_read_acknowledge(conv.chat_id)
-        if "Choose the language you like" in checker.message:
+        if checker.message and "Choose the language you like" in checker.message:
             await checker.click(1)
-            await conv.send_message(link)
             await conv.get_response()
             await event.client.send_read_acknowledge(conv.chat_id)
         await conv.send_message(link)
         await conv.get_response()
         await event.client.send_read_acknowledge(conv.chat_id)
+        media_messages = await _collect_bot_media(event, conv)
+        if await _forward_insta_media(event, v1, media_messages):
+            await catevent.delete()
+            return await delete_conv(event, v1, v1_flag)
+        await delete_conv(event, v1, v1_flag)
+
+    await edit_or_reply(catevent, "**Switching v2...**")
+    v2 = "videomaniacbot"
+    async with event.client.conversation(v2, timeout=90) as conv:
         try:
-            media = await conv.get_response(timeout=10)
-            await event.client.send_read_acknowledge(conv.chat_id)
-            if media.media:
-                while True:
-                    media_list.append(media)
-                    try:
-                        media = await conv.get_response(timeout=2)
-                        await event.client.send_read_acknowledge(conv.chat_id)
-                    except asyncio.TimeoutError:
-                        break
-                details = media_list[0].message.splitlines()
-                await catevent.delete()
-                await event.client.send_file(
-                    event.chat_id,
-                    media_list,
-                    caption=f"**{details[0]}**",
-                )
-                return await delete_conv(event, v1, v1_flag)
-        except asyncio.TimeoutError:
-            await delete_conv(event, v1, v1_flag)
-        await edit_or_reply(catevent, "**Switching v2...**")
-        async with event.client.conversation(v2) as conv:
-            try:
-                v2_flag = await conv.send_message("/start")
-            except YouBlockedUserError:
-                await catub(unblock("videomaniacbot"))
-                v2_flag = await conv.send_message("/start")
-            await conv.get_response()
-            await event.client.send_read_acknowledge(conv.chat_id)
-            await asyncio.sleep(1)
-            await conv.send_message(link)
-            await conv.get_response()
-            await event.client.send_read_acknowledge(conv.chat_id)
-            media = await conv.get_response()
-            await event.client.send_read_acknowledge(conv.chat_id)
-            if media.media:
-                await catevent.delete()
-                await event.client.send_file(event.chat_id, media)
-            else:
-                await edit_delete(
-                    catevent,
-                    f"**#ERROR\nv1 :** __Not valid URL__\n\n**v2 :**__ {media.text}__",
-                    40,
-                )
-            await delete_conv(event, v2, v2_flag)
+            v2_flag = await conv.send_message("/start")
+        except YouBlockedUserError:
+            await catub(unblock(v2))
+            v2_flag = await conv.send_message("/start")
+        await conv.get_response()
+        await event.client.send_read_acknowledge(conv.chat_id)
+        await asyncio.sleep(1)
+        await conv.send_message(link)
+        await conv.get_response()
+        await event.client.send_read_acknowledge(conv.chat_id)
+        media_messages = await _collect_bot_media(
+            event, conv, first_timeout=15, more_timeout=3
+        )
+        if await _forward_insta_media(event, v2, media_messages):
+            await catevent.delete()
+            return await delete_conv(event, v2, v2_flag)
+
+        text_replies = [m.text for m in media_messages if m.text and not m.media]
+        err_detail = text_replies[-1] if text_replies else "Not valid URL"
+        await edit_delete(
+            catevent,
+            f"**#ERROR**\n**v1/v2:** __{err_detail}__",
+            40,
+        )
+        await delete_conv(event, v2, v2_flag)
 
 
 @catub.cat_cmd(
