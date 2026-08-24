@@ -15,7 +15,6 @@ from collections import defaultdict
 import ujson
 import yt_dlp
 from telethon import Button
-from youtubesearchpython import VideosSearch
 from yt_dlp.utils import DownloadError, ExtractorError, GeoRestrictedError
 
 from ...Config import Config
@@ -41,31 +40,141 @@ name_dl = (
 )
 
 
-async def yt_search(cat):
+def _format_duration(seconds):
+    if seconds in (None, 0):
+        return "N/A"
     try:
-        cat = urllib.parse.quote(cat)
-        html = urllib.request.urlopen(
-            f"https://www.youtube.com/results?search_query={cat}"
-        )
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return "N/A"
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
 
-        user_data = re.findall(r"watch\?v=(\S{11})", html.read().decode())
-        video_link = []
-        k = 0
-        for i in user_data:
-            if user_data:
-                video_link.append(f"https://www.youtube.com/watch?v={user_data[k]}")
-            k += 1
-            if k > 3:
-                break
-        return video_link[0] if video_link else "Couldnt fetch results"
-    except Exception:
+
+def _format_view_count_short(count):
+    if not count:
+        return "N/A"
+    try:
+        count = int(count)
+    except (TypeError, ValueError):
+        return "N/A"
+    if count >= 1_000_000_000:
+        val = count / 1_000_000_000
+        return f"{val:.1f}B".replace(".0B", "B")
+    if count >= 1_000_000:
+        val = count / 1_000_000
+        return f"{val:.1f}M".replace(".0M", "M")
+    if count >= 1_000:
+        val = count / 1_000
+        return f"{val:.1f}K".replace(".0K", "K")
+    return str(count)
+
+
+def _format_upload_date(upload_date):
+    if not upload_date or len(str(upload_date)) != 8:
+        return "Unknown"
+    s = str(upload_date)
+    return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+
+
+def _normalize_ytdlp_entry(entry):
+    video_id = entry.get("id")
+    title = entry.get("title") or "Unknown"
+    link = (
+        entry.get("url")
+        or entry.get("webpage_url")
+        or (f"{BASE_YT_URL}{video_id}" if video_id else None)
+    )
+    duration = _format_duration(entry.get("duration"))
+    description = (entry.get("description") or "").strip()
+    description_snippet = [{"text": description}] if description else None
+    channel_url = entry.get("channel_url")
+    channel_id = entry.get("channel_id")
+    if not channel_url and channel_id:
+        channel_url = f"https://www.youtube.com/channel/{channel_id}"
+    channel_name = entry.get("uploader") or entry.get("channel") or "Unknown"
+
+    return {
+        "id": video_id,
+        "title": title,
+        "link": link,
+        "duration": duration,
+        "descriptionSnippet": description_snippet,
+        "viewCount": {"short": _format_view_count_short(entry.get("view_count"))},
+        "accessibility": {"duration": duration, "title": title},
+        "publishedTime": _format_upload_date(entry.get("upload_date")),
+        "channel": {"link": channel_url, "name": channel_name} if channel_url else None,
+    }
+
+
+def _videos_search_sync(query, limit=15):
+    """Search YouTube videos; returns VideosSearch-compatible result dict."""
+    query = (query or "").strip()
+    if not query:
+        return {"result": []}
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "extract_flat": "in_playlist",
+        "extractor_args": {"youtube": {"player_client": ["mweb", "web"]}},
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{int(limit)}:{query}", download=False)
+    except Exception as e:
+        LOGS.error(f"YouTube search failed for '{query}': {e}")
+        return {"result": []}
+
+    entries = info.get("entries") if info else None
+    if not entries:
+        return {"result": []}
+
+    results = []
+    for entry in entries:
+        if not entry:
+            continue
+        normalized = _normalize_ytdlp_entry(entry)
+        if normalized.get("id"):
+            results.append(normalized)
+    return {"result": results}
+
+
+@pool.run_in_thread
+def videos_search(query, limit=15):
+    return _videos_search_sync(query, limit)
+
+
+async def yt_search(cat):
+    """Return the first YouTube watch URL for a search query."""
+    query = (cat or "").strip()
+    if not query:
         return "Couldnt fetch results"
+    try:
+        results = (await videos_search(query, limit=1)).get("result") or []
+        if not results:
+            return "Couldnt fetch results"
+        video_id = results[0].get("id")
+        if video_id:
+            return f"{BASE_YT_URL}{video_id}"
+        link = results[0].get("link")
+        if link:
+            return link
+    except Exception as e:
+        LOGS.error(f"yt_search failed for '{query}': {e}")
+    return "Couldnt fetch results"
 
 
 async def ytsearch(query, limit):
     result = ""
-    videolinks = VideosSearch(query.lower(), limit=limit)
-    for v in videolinks.result()["result"]:
+    items = (await videos_search(query.lower(), limit=limit)).get("result") or []
+    if not items:
+        return "No results found."
+    for v in items:
         textresult = f"[{v['title']}](https://www.youtube.com/watch?v={v['id']})\n"
         try:
             textresult += f"**Description : **`{v['descriptionSnippet'][-1]['text']}`\n"

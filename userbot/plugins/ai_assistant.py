@@ -399,6 +399,7 @@ async def ask_ai(event):
             style_examples=None,
             is_pmpermit=False,
             include_full_profile=True,
+            is_owner_direct=True,
             friends=ai_state.get_friends(),
         )
         

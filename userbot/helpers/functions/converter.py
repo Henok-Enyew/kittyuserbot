@@ -158,5 +158,97 @@ class CatConverter:
             os.remove(catmedia)
         return (catevent, catfile) if os.path.exists(catfile) else (catevent, None)
 
+    async def to_vgif(
+        self,
+        event,
+        reply,
+        dirct="./temp",
+        file="output.gif",
+        max_duration=10,
+        max_width=480,
+        fps=10,
+        max_bytes=8 * 1024 * 1024,
+        noedits=False,
+    ):
+        """Convert video-like media to an actual GIF file."""
+        memetype = await meme_type(reply)
+        if memetype not in [
+            "Round Video",
+            "Video Sticker",
+            "Animated Sticker",
+            "Video",
+            "Gif",
+        ]:
+            return event, None
+
+        catevent = (
+            event
+            if noedits
+            else await edit_or_reply(event, "__Converting video to GIF...__")
+        )
+        catfile, catmedia = await self._media_check(reply, dirct, file, memetype)
+        temp_files = [catmedia] if catmedia else []
+        converted_media = catmedia
+
+        try:
+            if memetype == "Animated Sticker":
+                temp_mp4 = os.path.join(dirct, "vtogif_lottie.mp4")
+                temp_files.append(temp_mp4)
+                await runcmd(f"lottie_convert.py '{catmedia}' '{temp_mp4}'")
+                if not os.path.exists(temp_mp4):
+                    return catevent, None
+                converted_media = temp_mp4
+            elif memetype == "Gif":
+                await runcmd(
+                    f"ffmpeg -y -i '{catmedia}' -vf fps={fps},scale={max_width}:-2:flags=lanczos "
+                    f"-loop 0 '{catfile}'"
+                )
+                if os.path.exists(catfile):
+                    return catevent, catfile
+                return catevent, None
+
+            duration = await self._probe_duration(converted_media)
+            clip_duration = min(max_duration, duration or max_duration)
+            clip_duration = max(1, min(clip_duration, 30))
+
+            quality_steps = [
+                (max_width, fps),
+                (360, 10),
+                (320, 8),
+                (240, 8),
+            ]
+            for width, step_fps in quality_steps:
+                vf = (
+                    f"fps={step_fps},scale={width}:-2:flags=lanczos:"
+                    f"force_original_aspect_ratio=decrease,split[s0][s1];"
+                    f"[s0]palettegen=stats_mode=diff[p];"
+                    f"[s1][p]paletteuse=dither=bayer:bayer_scale=5"
+                )
+                cmd = (
+                    f"ffmpeg -y -t {clip_duration:.2f} -i '{converted_media}' "
+                    f"-vf \"{vf}\" -loop 0 '{catfile}'"
+                )
+                await runcmd(cmd)
+                if os.path.exists(catfile) and os.path.getsize(catfile) > 0:
+                    if os.path.getsize(catfile) <= max_bytes:
+                        return catevent, catfile
+            if os.path.exists(catfile) and os.path.getsize(catfile) > 0:
+                return catevent, catfile
+            return catevent, None
+        finally:
+            for temp_file in temp_files:
+                if temp_file and os.path.exists(temp_file):
+                    os.remove(temp_file)
+
+    async def _probe_duration(self, media_path):
+        stdout, _ = await runcmd(
+            "ffprobe -v error -show_entries format=duration "
+            f"-of default=noprint_wrappers=1:nokey=1 '{media_path}'"
+        )
+        try:
+            return float((stdout or b"").decode().strip())
+        except (TypeError, ValueError):
+            return None
+
 
 Convert = CatConverter()

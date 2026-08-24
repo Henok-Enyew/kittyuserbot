@@ -7,21 +7,16 @@
 # Please see: https://github.com/TgCatUB/catuserbot/blob/master/LICENSE
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-import base64
-import contextlib
-import io
 import os
+import uuid
 
 from ShazamAPI import Shazam
-from telethon import types
-from telethon.errors.rpcerrorlist import YouBlockedUserError
-from telethon.tl.functions.contacts import UnblockRequest as unblock
-from telethon.tl.functions.messages import ImportChatInviteRequest as Get
 from validators.url import url
 
+from ..Config import Config
 from ..core.logger import logging
 from ..core.managers import edit_delete, edit_or_reply
-from ..helpers.functions import delete_conv, yt_search
+from ..helpers.functions import yt_search
 from ..helpers.tools import media_type
 from ..helpers.utils import reply_id
 from . import catub, song_download
@@ -29,15 +24,52 @@ from . import catub, song_download
 plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
 
-# =========================================================== #
-#                           STRINGS                           #
-# =========================================================== #
 SONG_SEARCH_STRING = "<code>wi8..! I am finding your song....</code>"
 SONG_NOT_FOUND = "<code>Sorry !I am unable to find any song like that</code>"
-SONG_SENDING_STRING = "<code>yeah..! i found something wi8..🥰...</code>"
-# =========================================================== #
-#                                                             #
-# =========================================================== #
+
+
+def _resolve_query(event, text_group: int, reply):
+    query = event.pattern_match.group(text_group)
+    if query:
+        return str(query).strip()
+    if reply and reply.message:
+        return str(reply.message).strip()
+    return None
+
+
+async def _send_native_song(event, query, quality="128k", video=False):
+    reply_to_id = await reply_id(event)
+    catevent = await edit_or_reply(event, "`wi8..! I am finding your song....`")
+    video_link = await yt_search(query)
+    if not url(video_link):
+        await catevent.edit(
+            f"Sorry!. I can't find any related video/audio for `{query}`"
+        )
+        return
+
+    result = await song_download(
+        video_link, catevent, quality=quality, video=video
+    )
+    if not isinstance(result, tuple) or len(result) != 3:
+        return
+
+    media_file, catthumb, title = result
+    if not media_file or not os.path.exists(media_file):
+        return
+
+    await event.client.send_file(
+        event.chat_id,
+        media_file,
+        force_document=False,
+        caption=f"**Title:** `{title}`",
+        thumb=catthumb if catthumb and os.path.exists(catthumb) else None,
+        supports_streaming=True,
+        reply_to=reply_to_id,
+    )
+    await catevent.delete()
+    for file_path in (catthumb, media_file):
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
 
 
 @catub.cat_cmd(
@@ -55,37 +87,12 @@ SONG_SENDING_STRING = "<code>yeah..! i found something wi8..🥰...</code>"
 )
 async def song(event):
     "To search songs"
-    reply_to_id = await reply_id(event)
     reply = await event.get_reply_message()
-    if event.pattern_match.group(2):
-        query = event.pattern_match.group(2)
-    elif reply and reply.message:
-        query = reply.message
-    else:
+    query = _resolve_query(event, 2, reply)
+    if not query:
         return await edit_or_reply(event, "`What I am Supposed to find `")
-    cat = base64.b64decode("QUFBQUFGRV9vWjVYVE5fUnVaaEtOdw==")
-    catevent = await edit_or_reply(event, "`wi8..! I am finding your song....`")
-    video_link = await yt_search(str(query))
-    if not url(video_link):
-        return await catevent.edit(
-            f"Sorry!. I can't find any related video/audio for `{query}`"
-        )
-    cmd = event.pattern_match.group(1)
-    q = "320k" if cmd == "320" else "128k"
-    song_file, catthumb, title = await song_download(video_link, catevent, quality=q)
-    await event.client.send_file(
-        event.chat_id,
-        song_file,
-        force_document=False,
-        caption=f"**Title:** `{title}`",
-        thumb=catthumb,
-        supports_streaming=True,
-        reply_to=reply_to_id,
-    )
-    await catevent.delete()
-    for files in (catthumb, song_file):
-        if files and os.path.exists(files):
-            os.remove(files)
+    quality = "320k" if event.pattern_match.group(1) == "320" else "128k"
+    await _send_native_song(event, query, quality=quality, video=False)
 
 
 @catub.cat_cmd(
@@ -100,37 +107,11 @@ async def song(event):
 )
 async def vsong(event):
     "To search video songs"
-    reply_to_id = await reply_id(event)
     reply = await event.get_reply_message()
-    if event.pattern_match.group(1):
-        query = event.pattern_match.group(1)
-    elif reply and reply.message:
-        query = reply.message
-    else:
+    query = _resolve_query(event, 1, reply)
+    if not query:
         return await edit_or_reply(event, "`What I am Supposed to find`")
-    cat = base64.b64decode("QUFBQUFGRV9vWjVYVE5fUnVaaEtOdw==")
-    catevent = await edit_or_reply(event, "`wi8..! I am finding your song....`")
-    video_link = await yt_search(str(query))
-    if not url(video_link):
-        return await catevent.edit(
-            f"Sorry!. I can't find any related video/audio for `{query}`"
-        )
-    with contextlib.suppress(BaseException):
-        cat = Get(cat)
-        await event.client(cat)
-    vsong_file, catthumb, title = await song_download(video_link, catevent, video=True)
-    await event.client.send_file(
-        event.chat_id,
-        vsong_file,
-        caption=f"**Title:** `{title}`",
-        thumb=catthumb,
-        supports_streaming=True,
-        reply_to=reply_to_id,
-    )
-    await catevent.delete()
-    for files in (catthumb, vsong_file):
-        if files and os.path.exists(files):
-            os.remove(files)
+    await _send_native_song(event, query, video=True)
 
 
 @catub.cat_cmd(
@@ -139,11 +120,11 @@ async def vsong(event):
     info={
         "header": "To reverse search song.",
         "description": "Reverse search audio file using shazam api",
-        "flags": {"s": "To send the song of sazam match"},
+        "flags": {"s": "To download and send the matched song (320k MP3)"},
         "usage": [
             "{tr}shazam <reply to voice/audio>",
             "{tr}szm <reply to voice/audio>",
-            "{tr}szm s<reply to voice/audio>",
+            "{tr}szm s <reply to voice/audio>",
         ],
     },
 )
@@ -151,66 +132,93 @@ async def shazamcmd(event):
     "To reverse search song."
     reply = await event.get_reply_message()
     mediatype = await media_type(reply)
-    chat = "@DeezerMusicBot"
-    delete = False
-    flag = event.pattern_match.group(4)
+    flag = (event.pattern_match.group(4) or "").strip().lower()
     if not reply or not mediatype or mediatype not in ["Voice", "Audio"]:
         return await edit_delete(
             event, "__Reply to Voice clip or Audio clip to reverse search that song.__"
         )
+
     catevent = await edit_or_reply(event, "__Downloading the audio clip...__")
-    name = "cat.mp3"
+    temp_dir = getattr(Config, "TEMP_DIR", "./temp/")
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, f"shazam_{uuid.uuid4().hex}.mp3")
+
     try:
-        for attr in getattr(reply.document, "attributes", []):
-            if isinstance(attr, types.DocumentAttributeFilename):
-                name = attr.file_name
-        dl = io.FileIO(name, "a")
-        await event.client.fast_download_file(
-            location=reply.document,
-            out=dl,
-        )
-        dl.close()
-        mp3_fileto_recognize = open(name, "rb").read()
-        shazam = Shazam(mp3_fileto_recognize)
+        downloaded = await event.client.download_media(reply, file=temp_path)
+        if not downloaded or not os.path.exists(downloaded):
+            return await edit_delete(catevent, "__Could not download the audio clip.__")
+
+        with open(downloaded, "rb") as audio_file:
+            audio_bytes = audio_file.read()
+        if not audio_bytes:
+            return await edit_delete(catevent, "__Downloaded audio clip is empty.__")
+
+        shazam = Shazam(audio_bytes)
         recognize_generator = shazam.recognizeSong()
         track = next(recognize_generator)[1]["track"]
+    except StopIteration:
+        return await edit_delete(
+            catevent, "**No song match found for this audio clip.**"
+        )
     except Exception as e:
-        LOGS.error(e)
+        LOGS.error(f"shazam error: {e}")
         return await edit_delete(
             catevent, f"**Error while reverse searching song:**\n__{e}__"
         )
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
-    file = track["images"]["background"]
-    title = track["share"]["subject"]
-    slink = await yt_search(title)
-    if flag == "s":
-        deezer = track["hub"]["providers"][1]["actions"][0]["uri"][15:]
-        async with event.client.conversation(chat) as conv:
-            try:
-                purgeflag = await conv.send_message("/start")
-            except YouBlockedUserError:
-                await catub(unblock("DeezerMusicBot"))
-                purgeflag = await conv.send_message("/start")
-            await conv.get_response()
-            await event.client.send_read_acknowledge(conv.chat_id)
-            await conv.send_message(deezer)
-            await event.client.get_messages(chat)
-            song = await event.client.get_messages(chat)
-            await song[0].click(0)
-            await conv.get_response()
-            file = await conv.get_response()
-            await event.client.send_read_acknowledge(conv.chat_id)
-            delete = True
+    title = track.get("title") or "Unknown"
+    artist = track.get("subtitle") or ""
+    search_query = track.get("share", {}).get("subject") or f"{artist} {title}".strip()
+    yt_link = await yt_search(search_query)
+    yt_url = yt_link if url(yt_link) else None
+
+    if flag == "s" and yt_url:
+        reply_to_id = await reply_id(event)
+        result = await song_download(yt_url, catevent, quality="320k", video=False)
+        if isinstance(result, tuple) and len(result) == 3:
+            song_file, catthumb, dl_title = result
+            if song_file and os.path.exists(song_file):
+                await event.client.send_file(
+                    event.chat_id,
+                    song_file,
+                    force_document=False,
+                    caption=(
+                        f"<b>Song :</b> <code>{title}</code>\n"
+                        f"<b>Artist :</b> <code>{artist}</code>\n"
+                        f"<b>YouTube :</b> <a href='{yt_url}'>link</a>"
+                    ),
+                    thumb=catthumb if catthumb and os.path.exists(catthumb) else None,
+                    supports_streaming=True,
+                    reply_to=reply_to_id,
+                    parse_mode="html",
+                )
+                await catevent.delete()
+                for file_path in (catthumb, song_file):
+                    if file_path and os.path.exists(file_path):
+                        os.remove(file_path)
+                return
+
+    cover = track.get("images", {}).get("background")
+    caption = (
+        f"<b>Song :</b> <code>{title}</code>\n"
+        f"<b>Artist :</b> <code>{artist}</code>\n"
+    )
+    if yt_url:
+        caption += f"<b>YouTube :</b> <a href='{yt_url}'>link</a>"
+    else:
+        caption += "<b>YouTube :</b> not found"
+
     await event.client.send_file(
         event.chat_id,
-        file,
-        caption=f"<b>Song :</b> <code>{title}</code>\n<b>Song Link : <a href = {slink}/1>YouTube</a></b>",
+        cover,
+        caption=caption,
         reply_to=reply,
         parse_mode="html",
     )
     await catevent.delete()
-    if delete:
-        await delete_conv(event, chat, purgeflag)
 
 
 @catub.cat_cmd(
@@ -218,34 +226,15 @@ async def shazamcmd(event):
     command=("song2", plugin_category),
     info={
         "header": "To search songs and upload to telegram",
-        "description": "Searches the song you entered in query and sends it quality of it is 320k",
+        "description": "Searches YouTube and uploads the first match as 320k MP3.",
         "usage": "{tr}song2 <song name>",
         "examples": "{tr}song2 memories",
     },
 )
 async def song2(event):
-    "To search songs"
-    song = event.pattern_match.group(1)
-    chat = "@CatMusicRobot"
-    reply_id_ = await reply_id(event)
-    catevent = await edit_or_reply(event, SONG_SEARCH_STRING, parse_mode="html")
-    async with event.client.conversation(chat) as conv:
-        try:
-            purgeflag = await conv.send_message(song)
-        except YouBlockedUserError:
-            await catub(unblock("CatMusicRobot"))
-            purgeflag = await conv.send_message(song)
-        music = await conv.get_response()
-        await event.client.send_read_acknowledge(conv.chat_id)
-        if not music.media:
-            return await edit_delete(catevent, SONG_NOT_FOUND, parse_mode="html")
-        await event.client.send_read_acknowledge(conv.chat_id)
-        await event.client.send_file(
-            event.chat_id,
-            music,
-            caption=f"<b>Title :- <code>{song}</code></b>",
-            parse_mode="html",
-            reply_to=reply_id_,
-        )
-        await catevent.delete()
-        await delete_conv(event, chat, purgeflag)
+    "To search songs (320k native download)"
+    reply = await event.get_reply_message()
+    query = _resolve_query(event, 1, reply)
+    if not query:
+        return await edit_or_reply(event, SONG_NOT_FOUND, parse_mode="html")
+    await _send_native_song(event, query, quality="320k", video=False)

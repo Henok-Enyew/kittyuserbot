@@ -426,7 +426,11 @@ async def get(event):
         try:
             with fitz.open(file_loc) as doc:
                 for page in doc:
-                    file_content += page.getText()
+                    text_fn = getattr(page, "get_text", None) or getattr(
+                        page, "getText", None
+                    )
+                    if text_fn:
+                        file_content += text_fn()
         except Exception as e:
             if os.path.exists(file_loc):
                 os.remove(file_loc)
@@ -530,6 +534,100 @@ async def _(event):  # sourcery no-metrics
     for files in (catgif, catfile):
         if files and os.path.exists(files):
             os.remove(files)
+
+
+@catub.cat_cmd(
+    pattern=r"vtogif(?: |$)([\s\S]*)",
+    command=("vtogif", plugin_category),
+    info={
+        "header": "Convert video to GIF",
+        "description": (
+            "Reply to a video, round video, video sticker, or GIF and convert it "
+            "to a real GIF file. Long clips are trimmed automatically."
+        ),
+        "usage": [
+            "{tr}vtogif",
+            "{tr}vtogif 5",
+            "{tr}vtogif 5 320",
+        ],
+        "examples": [
+            "{tr}vtogif",
+            "{tr}vtogif 8",
+            "{tr}vtogif 6 360",
+        ],
+        "note": (
+            "Optional args: seconds (1-30, default 10) and max width in pixels "
+            "(240-720, default 480). Example: `.vtogif 5 320`"
+        ),
+    },
+)
+async def video_to_gif(event):
+    "Convert replied video-like media to a GIF file."
+    reply = await event.get_reply_message()
+    if not reply or not reply.media:
+        return await edit_delete(event, "`Reply to a video, round video, or GIF.`")
+
+    memetype = await meme_type(reply)
+    if memetype not in [
+        "Round Video",
+        "Video Sticker",
+        "Animated Sticker",
+        "Video",
+        "Gif",
+    ]:
+        return await edit_delete(
+            event,
+            "`Unsupported media. Reply to video, round video, video sticker, or GIF.`",
+        )
+
+    args = (event.pattern_match.group(1) or "").strip().split()
+    max_duration = 10
+    max_width = 480
+    try:
+        if len(args) >= 1:
+            max_duration = max(1, min(int(args[0]), 30))
+        if len(args) >= 2:
+            max_width = max(240, min(int(args[1]), 720))
+    except ValueError:
+        return await edit_delete(
+            event,
+            "`Invalid args. Usage: .vtogif [seconds] [width]`",
+        )
+
+    catevent = await edit_or_reply(
+        event,
+        f"__Converting to GIF ({max_duration}s, width {max_width}px)...__",
+    )
+    reply_to_id = await reply_id(event)
+
+    result = await Convert.to_vgif(
+        event,
+        reply,
+        max_duration=max_duration,
+        max_width=max_width,
+        noedits=True,
+    )
+    catgif = result[1]
+    if not catgif or not os.path.exists(catgif):
+        return await edit_delete(
+            catevent, "`Could not convert this media to GIF. Try a shorter clip.`"
+        )
+
+    try:
+        sandy = await event.client.send_file(
+            event.chat_id,
+            catgif,
+            reply_to=reply_to_id,
+            force_document=False,
+        )
+        await unsavegif(event, sandy)
+        await catevent.delete()
+    except Exception as e:
+        LOGS.error(f"vtogif upload failed: {e}")
+        await edit_delete(catevent, f"`Upload failed:` {e}")
+    finally:
+        if catgif and os.path.exists(catgif):
+            os.remove(catgif)
 
 
 @catub.cat_cmd(

@@ -39,6 +39,92 @@ from ..helpers.utils import reply_id
 
 plugin_category = "fun"
 
+_FONT_RESOURCES_URL = (
+    "https://raw.githubusercontent.com/TgCatUB/CatUserbot-Resources/master/Resources/StickerFun/resources.txt"
+)
+_FALLBACK_FONT_URL = (
+    "https://github.com/TgCatUB/CatUserbot-Resources/blob/master/Resources/Spotify/ArialUnicodeMS.ttf?raw=true"
+)
+_LOCAL_FONT_PATH = "./temp/ArialUnicodeMS.ttf"
+
+
+def _is_valid_font(data: bytes) -> bool:
+    """Return True if bytes look like a usable TTF/OTF font (not HTML/error page)."""
+    if not data or len(data) < 4:
+        return False
+    head = data.lstrip()[:20].lower()
+    if head.startswith(b"<!doc") or head.startswith(b"<html") or head.startswith(b"<"):
+        return False
+    magic = data[:4]
+    return magic in (
+        b"\x00\x01\x00\x00",  # TrueType
+        b"OTTO",  # OpenType with CFF
+        b"true",
+        b"typ1",
+    )
+
+
+def _download_font_bytes(url: str, timeout: int = 15) -> bytes | None:
+    try:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        if _is_valid_font(resp.content):
+            return resp.content
+    except Exception:
+        pass
+    return None
+
+
+def _load_local_font_bytes() -> bytes | None:
+    if not os.path.exists(_LOCAL_FONT_PATH):
+        return None
+    try:
+        with open(_LOCAL_FONT_PATH, "rb") as font_file:
+            data = font_file.read()
+        if _is_valid_font(data):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _cache_font_bytes(data: bytes) -> None:
+    try:
+        if not os.path.isdir("./temp"):
+            os.mkdir("./temp")
+        with open(_LOCAL_FONT_PATH, "wb") as font_file:
+            font_file.write(data)
+    except Exception:
+        pass
+
+
+def _get_stcr_font_bytes() -> bytes:
+    """Pick a random remote font; retry and fall back if download is invalid."""
+    font_urls = []
+    try:
+        json_resp = requests.get(_FONT_RESOURCES_URL, timeout=15)
+        json_resp.raise_for_status()
+        font_urls = json_resp.json().get("fonts", [])
+    except Exception:
+        font_urls = []
+
+    candidates = list(font_urls)
+    random.shuffle(candidates)
+    if _FALLBACK_FONT_URL not in candidates:
+        candidates.append(_FALLBACK_FONT_URL)
+
+    for url in candidates:
+        data = _download_font_bytes(url)
+        if data:
+            _cache_font_bytes(data)
+            return data
+
+    local_data = _load_local_font_bytes()
+    if local_data:
+        return local_data
+
+    raise OSError("Could not load a valid font for sticker")
+
 
 def file_checker(template):
     if not os.path.isdir("./temp"):
@@ -105,11 +191,11 @@ async def sticklet(event):
     image = Image.new("RGBA", (512, 512), (255, 255, 255, 0))
     draw = ImageDraw.Draw(image)
     fontsize = 230
-    json = requests.get(
-        "https://raw.githubusercontent.com/TgCatUB/CatUserbot-Resources/master/Resources/StickerFun/resources.txt"
-    ).json()
-    FONT_FILE = requests.get(random.choice(json["fonts"]))
-    font = ImageFont.truetype(BytesIO(FONT_FILE.content), size=fontsize)
+    try:
+        font_bytes = _get_stcr_font_bytes()
+    except OSError:
+        return await edit_delete(event, "`Could not load font for sticker. Try again.`")
+    font = ImageFont.truetype(BytesIO(font_bytes), size=fontsize)
 
     def _textsize(d, txt, f):
         bbox = d.textbbox((0, 0), txt, font=f)
@@ -117,7 +203,7 @@ async def sticklet(event):
 
     while _textsize(draw, sticktext, font) > (512, 512):
         fontsize -= 3
-        font = ImageFont.truetype(BytesIO(FONT_FILE.content), size=fontsize)
+        font = ImageFont.truetype(BytesIO(font_bytes), size=fontsize)
     width, height = _textsize(draw, sticktext, font)
     draw.multiline_text(
         ((512 - width) / 2, (512 - height) / 2), sticktext, font=font, fill=(RGB)

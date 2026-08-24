@@ -17,7 +17,6 @@ from pathlib import Path
 
 from telethon import Button, types
 from telethon.events import CallbackQuery, InlineQuery
-from youtubesearchpython import VideosSearch
 
 from userbot import catub
 
@@ -29,6 +28,7 @@ from ..helpers.functions.utube import (
     get_yt_video_id,
     get_ytthumb,
     result_formatter,
+    videos_search,
     ytsearch_data,
 )
 from ..plugins import mention
@@ -491,9 +491,8 @@ async def youtube_data_article(event, str_y):
     link = get_yt_video_id(str_y[1].strip())
     found_ = True
     if link is None:
-        search = VideosSearch(str_y[1].strip(), limit=15)
-        resp = (search.result()).get("result")
-        if len(resp) == 0:
+        resp = (await videos_search(str_y[1].strip(), limit=15)).get("result") or []
+        if not resp:
             found_ = False
         else:
             outdata = await result_formatter(resp)

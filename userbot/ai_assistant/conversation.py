@@ -183,6 +183,7 @@ You represent {self.user_name}. Be cool, funny, helpful — and human."""
         style_examples: List[str] = None,
         is_pmpermit: bool = False,
         include_full_profile: bool = False,
+        is_owner_direct: bool = False,
         friends: List[Dict[str, str]] = None,
     ) -> List[Dict[str, str]]:
         """
@@ -241,6 +242,16 @@ CURRENT ROLE: PM GATEKEEPER
             system_content += (
                 "\nMatch tone, energy, and typical message length — don't copy verbatim."
             )
+
+        if is_owner_direct:
+            system_content += f"""
+
+DIRECT OWNER SESSION (.ask):
+The person messaging you right now IS {self.user_name} — the owner himself.
+- Talk TO him directly (you/your), not about him in third person
+- "my portfolio", "my skills", "who am I", "what do I do" = questions about HIMSELF
+- You are his assistant and homie — answer like you're texting {self.user_name} back
+- Use his profile data when he asks about himself; be natural and helpful"""
 
         messages = [{"role": "system", "content": system_content}]
 

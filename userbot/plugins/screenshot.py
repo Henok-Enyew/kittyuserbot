@@ -85,7 +85,7 @@ async def scapture(event):
     "To Take a screenshot of a website."
     start = datetime.now()
     message_id = await reply_id(event)
-    if Config.SCREEN_SHOT_LAYER_ACCESS_KEY is None:
+    if getattr(Config, "SCREEN_SHOT_LAYER_ACCESS_KEY", None) is None:
         return await edit_or_reply(
             event,
             "`Need to get an API key from https://screenshotlayer.com/product and need to set it SCREEN_SHOT_LAYER_ACCESS_KEY !`",
