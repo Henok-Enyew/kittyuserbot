@@ -185,6 +185,9 @@ You represent {self.user_name}. Be cool, funny, helpful — and human."""
         include_full_profile: bool = False,
         is_owner_direct: bool = False,
         friends: List[Dict[str, str]] = None,
+        owner_notes: List[Dict[str, str]] = None,
+        reply_mode: Optional[str] = None,
+        summarize_mode: bool = False,
     ) -> List[Dict[str, str]]:
         """
         Build the full message list for the AI provider.
@@ -206,6 +209,14 @@ You represent {self.user_name}. Be cool, funny, helpful — and human."""
                 note = f.get("note", "")
                 if name:
                     system_content += f"\n- {name}" + (f": {note}" if note else "")
+
+        if owner_notes:
+            system_content += "\n\nOWNER NOTES (use when relevant — personal facts Henok saved):"
+            for note in owner_notes[:15]:
+                topic = note.get("topic", "")
+                content = note.get("content", "")
+                if topic and content:
+                    system_content += f"\n- {topic}: {content}"
 
         if is_pmpermit:
             system_content += f"""
@@ -252,6 +263,45 @@ The person messaging you right now IS {self.user_name} — the owner himself.
 - "my portfolio", "my skills", "who am I", "what do I do" = questions about HIMSELF
 - You are his assistant and homie — answer like you're texting {self.user_name} back
 - Use his profile data when he asks about himself; be natural and helpful"""
+
+        if reply_mode:
+            if reply_mode == "savage":
+                system_content += """
+
+REPLY COACH MODE (savage):
+Henok needs reply options for a message he received. Give exactly 3 labeled options:
+1. Casual: ...
+2. Funny: ...
+3. Savage: ...
+Keep each option short — copy-paste ready. Savage can be witty/edgy but never cruel or offensive."""
+            elif reply_mode == "am":
+                system_content += """
+
+REPLY COACH MODE (Amharic-English mix):
+Henok needs reply options for a message he received. Give exactly 3 labeled options:
+1. Casual: ...
+2. Funny: ...
+3. Professional: ...
+Use natural Amharic-English mix (Amharic phrases where they fit). Primary language English."""
+            else:
+                system_content += """
+
+REPLY COACH MODE:
+Henok needs reply options for a message he received. Give exactly 3 labeled options:
+1. Casual: ...
+2. Funny: ...
+3. Professional: ...
+Keep each option short — copy-paste ready. Match the vibe of the incoming message."""
+
+        if summarize_mode:
+            system_content += """
+
+SUMMARIZE MODE:
+Produce a concise TL;DR summary of the content Henok provided.
+- Use bullet points
+- Preserve names, decisions, and action items
+- No fluff, no intro/outro
+- Max 8 bullets unless content is very long"""
 
         messages = [{"role": "system", "content": system_content}]
 

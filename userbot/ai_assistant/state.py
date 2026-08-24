@@ -35,6 +35,10 @@ class AIState:
         self.friends: List[Dict[str, str]] = []
         self.max_friends: int = 30
 
+        # Owner personal notes: list of {"topic", "content"}
+        self.owner_notes: List[Dict[str, str]] = []
+        self.max_owner_notes: int = 100
+
         # ── AI AFK state (separate from the built-in .afk system) ──────────
         self.aiafk_enabled: bool = False
         self.aiafk_reason: Optional[str] = None
@@ -87,6 +91,12 @@ class AIState:
             friends = mem.load_friends(self.max_friends)
             if friends:
                 self.friends = list(friends)
+
+            from userbot.sql_helper import owner_notes_sql as notes_sql
+
+            notes = notes_sql.load_owner_notes(self.max_owner_notes)
+            if notes:
+                self.owner_notes = list(notes)
         except Exception:
             pass
 
@@ -279,6 +289,74 @@ class AIState:
         except Exception:
             pass
         return len(self.friends) < before
+
+    # ── Owner notes (.remember) ───────────────────────────────────────────
+
+    def add_owner_note(self, topic: str, content: str) -> bool:
+        if not topic or not content:
+            return False
+        key = topic.strip().lower()
+        for note in self.owner_notes:
+            if note.get("topic", "").lower() == key:
+                note["content"] = content.strip()
+                note["topic"] = topic.strip()
+                self._persist_owner_note(topic, content)
+                return True
+        self.owner_notes.append({"topic": topic.strip(), "content": content.strip()})
+        if len(self.owner_notes) > self.max_owner_notes:
+            self.owner_notes = self.owner_notes[-self.max_owner_notes :]
+        self._persist_owner_note(topic, content)
+        return True
+
+    def _persist_owner_note(self, topic: str, content: str):
+        try:
+            from userbot.sql_helper.owner_notes_sql import upsert_note
+
+            upsert_note(topic, content, self.max_owner_notes)
+        except Exception:
+            pass
+
+    def get_owner_notes(self, limit: int = 15) -> List[Dict[str, str]]:
+        return self.owner_notes[-limit:] if self.owner_notes else []
+
+    def recall_owner_note(self, topic: str) -> Optional[Dict[str, str]]:
+        try:
+            from userbot.sql_helper.owner_notes_sql import find_note
+
+            found = find_note(topic)
+            if found:
+                return found
+        except Exception:
+            pass
+        key = (topic or "").strip().lower()
+        for note in self.owner_notes:
+            if key in note.get("topic", "").lower():
+                return note
+        return None
+
+    def delete_owner_note(self, topic: str) -> bool:
+        key = (topic or "").strip().lower()
+        before = len(self.owner_notes)
+        self.owner_notes = [
+            n for n in self.owner_notes if n.get("topic", "").lower() != key
+        ]
+        try:
+            from userbot.sql_helper.owner_notes_sql import delete_note
+
+            delete_note(topic)
+        except Exception:
+            pass
+        return len(self.owner_notes) < before
+
+    def reload_owner_notes(self):
+        try:
+            from userbot.sql_helper import owner_notes_sql as notes_sql
+
+            notes = notes_sql.load_owner_notes(self.max_owner_notes)
+            if notes:
+                self.owner_notes = list(notes)
+        except Exception:
+            pass
 
     # ── AI Provider Management ────────────────────────────────────────────
 

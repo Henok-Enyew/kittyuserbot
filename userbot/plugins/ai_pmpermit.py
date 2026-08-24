@@ -287,6 +287,7 @@ async def aipmpermit_handler(event):
             is_pmpermit=True,
             include_full_profile=True,
             friends=ai_state.get_friends(),
+            owner_notes=ai_state.get_owner_notes(limit=10),
         )
 
         response = await provider.generate_response(

@@ -158,6 +158,44 @@ class CatConverter:
             os.remove(catmedia)
         return (catevent, catfile) if os.path.exists(catfile) else (catevent, None)
 
+    async def to_vgif_from_path(
+        self,
+        media_path: str,
+        out_path: str,
+        max_duration=10,
+        max_width=480,
+        fps=10,
+        max_bytes=8 * 1024 * 1024,
+    ):
+        """Convert a local video file to GIF (used by .clip gif)."""
+        if not media_path or not os.path.exists(media_path):
+            return None
+        try:
+            duration = await self._probe_duration(media_path)
+            clip_duration = min(max_duration, duration or max_duration)
+            clip_duration = max(1, min(clip_duration, 30))
+            quality_steps = [(max_width, fps), (360, 10), (320, 8), (240, 8)]
+            for width, step_fps in quality_steps:
+                vf = (
+                    f"fps={step_fps},scale={width}:-2:flags=lanczos:"
+                    f"force_original_aspect_ratio=decrease,split[s0][s1];"
+                    f"[s0]palettegen=stats_mode=diff[p];"
+                    f"[s1][p]paletteuse=dither=bayer:bayer_scale=5"
+                )
+                cmd = (
+                    f"ffmpeg -y -t {clip_duration:.2f} -i '{media_path}' "
+                    f"-vf \"{vf}\" -loop 0 '{out_path}'"
+                )
+                await runcmd(cmd)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                    if os.path.getsize(out_path) <= max_bytes:
+                        return out_path
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                return out_path
+        except Exception:
+            pass
+        return None
+
     async def to_vgif(
         self,
         event,
@@ -211,29 +249,11 @@ class CatConverter:
             clip_duration = min(max_duration, duration or max_duration)
             clip_duration = max(1, min(clip_duration, 30))
 
-            quality_steps = [
-                (max_width, fps),
-                (360, 10),
-                (320, 8),
-                (240, 8),
-            ]
-            for width, step_fps in quality_steps:
-                vf = (
-                    f"fps={step_fps},scale={width}:-2:flags=lanczos:"
-                    f"force_original_aspect_ratio=decrease,split[s0][s1];"
-                    f"[s0]palettegen=stats_mode=diff[p];"
-                    f"[s1][p]paletteuse=dither=bayer:bayer_scale=5"
-                )
-                cmd = (
-                    f"ffmpeg -y -t {clip_duration:.2f} -i '{converted_media}' "
-                    f"-vf \"{vf}\" -loop 0 '{catfile}'"
-                )
-                await runcmd(cmd)
-                if os.path.exists(catfile) and os.path.getsize(catfile) > 0:
-                    if os.path.getsize(catfile) <= max_bytes:
-                        return catevent, catfile
-            if os.path.exists(catfile) and os.path.getsize(catfile) > 0:
-                return catevent, catfile
+            out = await self.to_vgif_from_path(
+                converted_media, catfile, clip_duration, max_width, fps, max_bytes
+            )
+            if out:
+                return catevent, out
             return catevent, None
         finally:
             for temp_file in temp_files:

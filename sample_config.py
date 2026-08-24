@@ -148,6 +148,14 @@ class Config(object):
     GIT_REPO_NAME = os.environ.get("GIT_REPO_NAME", None)
     # Deepai value can get from https://deepai.org/
     DEEP_AI = os.environ.get("DEEP_AI", None)
+    # Portfolio card — public Google Drive (or direct) resume link
+    PORTFOLIO_RESUME_URL = os.environ.get("PORTFOLIO_RESUME_URL", None)
+    # Auto-send portfolio card to brand-new PM strangers (first message only)
+    PORTFOLIO_AUTO_GREET = os.environ.get("PORTFOLIO_AUTO_GREET", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
     # DO NOT EDIT BELOW THIS LINE IF YOU DO NOT KNOW WHAT YOU ARE DOING
     # TG API limit. A message can have maximum 4096 characters!
