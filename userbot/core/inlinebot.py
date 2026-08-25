@@ -7,6 +7,7 @@
 # Please see: https://github.com/TgCatUB/catuserbot/blob/master/LICENSE
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
+import asyncio
 import json
 import math
 import os
@@ -22,10 +23,11 @@ from telethon.events import CallbackQuery, InlineQuery
 from userbot import catub
 
 from ..assistant.inlinefm import get_manager
+from ..assistant.whisper_store import put_whisper
 from ..Config import Config
 from ..helpers.functions import rand_key
 from ..helpers.functions.utube import (
-    download_button,
+    _fast_download_buttons,
     get_yt_video_id,
     get_ytthumb,
     result_formatter,
@@ -161,19 +163,23 @@ async def filemanager_article(event):
     )
 
 
+KITTY_REPO = "https://github.com/Henok-Enyew/kittyuserbot"
+
+
 async def deploy_article(event):
     buttons = [
         (
-            Button.url("Source code", "https://github.com/TgCatUB/catuserbot"),
-            Button.url("Deploy", "https://github.com/TgCatUB/nekopack"),
+            Button.url("Source code", KITTY_REPO),
+            Button.url("GitHub", KITTY_REPO),
         )
     ]
     return await build_article(
         event,
-        title="𝘾𝙖𝙩𝙐𝙨𝙚𝙧𝙗𝙤𝙩",
-        description="Deploy yourself.",
+        title="KittyUserbot",
+        description="Get the source on GitHub.",
         media="https://github.com/TgCatUB/CatUserbot-Resources/raw/master/Resources/Inline/catlogo.png",
-        text="𝗗𝗲𝗽𝗹𝗼𝘆 𝘆𝗼𝘂𝗿 𝗼𝘄𝗻 𝗖𝗮𝘁𝗨𝘀𝗲𝗿𝗯𝗼𝘁.",
+        text="𝗗𝗲𝗽𝗹𝗼𝘆 𝘆𝗼𝘂𝗿 𝗼𝘄𝗻 𝗞𝗶𝘁𝘁𝘆𝗨𝘀𝗲𝗿𝗯𝗼𝘁.\n\n"
+        f"[Henok-Enyew/kittyuserbot]({KITTY_REPO})",
         buttons=buttons,
     )
 
@@ -243,7 +249,7 @@ async def article_builder(event, method):
         buttons = [
             (
                 Button.inline("Stats", data="stats"),
-                Button.url("Repo", "https://github.com/TgCatUB/catuserbot"),
+                Button.url("Repo", "https://github.com/Henok-Enyew/kittyuserbot"),
             )
         ]
         try:
@@ -450,15 +456,33 @@ async def inline_handler(event):
             result = await article_builder(event, query)
             await event.answer([result] if result else None)
         elif match or match2 or match3:
-            result, old_msg, jsondata, new_msg = await hide_toll_secret(
-                event, query, match, match3
-            )
-            await event.answer([result] if result else None)
-            if jsondata:
-                jsondata.update(new_msg)
-                json.dump(jsondata, open(old_msg, "w"))
+            packed = await hide_toll_secret(event, query, match, match3)
+            if not packed:
+                result = await build_article(
+                    event,
+                    title="Invalid whisper",
+                    description="Could not resolve user / bad syntax.",
+                    text=(
+                        "**Could not create whisper.**\n\n"
+                        "Use: `secret @username text`\n"
+                        "Or: `secret @user1 @user2 | text`\n"
+                        "Hide: `hide text`"
+                    ),
+                )
+                await event.answer([result] if result else None)
             else:
-                json.dump(new_msg, open(old_msg, "w"))
+                result, old_msg, jsondata, new_msg = packed
+                await event.answer([result] if result else None)
+                if result and new_msg is not None:
+                    try:
+                        os.makedirs(os.path.dirname(old_msg) or ".", exist_ok=True)
+                        if jsondata:
+                            jsondata.update(new_msg)
+                            json.dump(jsondata, open(old_msg, "w"))
+                        else:
+                            json.dump(new_msg, open(old_msg, "w"))
+                    except Exception as e:
+                        LOGS.error(f"Failed to persist whisper: {e}")
         elif string == "help":
             result = await help_article(event)
             await event.answer([result] if result else None)
@@ -472,7 +496,33 @@ async def inline_handler(event):
             result = await inline_search(event, str_y[1].strip())
             await event.answer(result or None)
         elif str_y[0].lower() == "ytdl" and len(str_y) == 2:
-            result = await youtube_data_article(event, str_y)
+            try:
+                result = await asyncio.wait_for(
+                    youtube_data_article(event, str_y), timeout=4.5
+                )
+            except asyncio.TimeoutError:
+                LOGS.warning("Inline ytdl search timed out — tip article")
+                result = await build_article(
+                    event,
+                    title="Timed out — use .iytdl",
+                    description="Inline search took too long",
+                    text=(
+                        "**Inline ytdl timed out.**\n\n"
+                        "Use `.iytdl <query>` instead — it searches first, "
+                        "then opens the download buttons."
+                    ),
+                )
+            except Exception as e:
+                LOGS.error(f"Inline ytdl failed: {e}")
+                result = await build_article(
+                    event,
+                    title="ytdl error — try .iytdl",
+                    description="Inline search failed",
+                    text=(
+                        f"**Inline ytdl error:** `{e}`\n\n"
+                        "Try `.iytdl <query>` instead."
+                    ),
+                )
             try:
                 await event.answer([result] if result else None)
             except QueryIdInvalidError:
@@ -497,36 +547,41 @@ async def youtube_data_article(event, str_y):
     link = get_yt_video_id(str_y[1].strip())
     found_ = True
     if link is None:
-        resp = (await videos_search(str_y[1].strip(), limit=15)).get("result") or []
+        resp = (await videos_search(str_y[1].strip(), limit=5)).get("result") or []
         if not resp:
             found_ = False
         else:
             outdata = await result_formatter(resp)
-            key_ = rand_key()
-            ytsearch_data.store_(key_, outdata)
-            buttons = [
-                Button.inline(
-                    f"1 / {len(outdata)}",
-                    data=f"ytdl_next_{key_}_1",
-                ),
-                Button.inline(
-                    "📜  List all",
-                    data=f"ytdl_listall_{key_}_1",
-                ),
-                Button.inline(
-                    "⬇️  Download",
-                    data=f'ytdl_download_{outdata[1]["video_id"]}_0',
-                ),
-            ]
-            caption = outdata[1]["message"]
-            photo = await get_ytthumb(outdata[1]["video_id"])
+            if not outdata:
+                found_ = False
+            else:
+                key_ = rand_key()
+                ytsearch_data.store_(key_, outdata)
+                buttons = [
+                    Button.inline(
+                        f"1 / {len(outdata)}",
+                        data=f"ytdl_next_{key_}_1",
+                    ),
+                    Button.inline(
+                        "📜  List all",
+                        data=f"ytdl_listall_{key_}_1",
+                    ),
+                    Button.inline(
+                        "⬇️  Download",
+                        data=f'ytdl_download_{outdata[1]["video_id"]}_0',
+                    ),
+                ]
+                caption = outdata[1]["message"]
+                photo = outdata[1]["thumb"]
     else:
-        caption, buttons = await download_button(link, body=True)
+        # Fast path: skip yt-dlp extract so inline answers before Telegram times out
         photo = await get_ytthumb(link)
+        caption = f'<a href=https://www.youtube.com/watch?v={link}><b>[{link}]</b></a>'
+        buttons = _fast_download_buttons(link)
     if found_:
         result = await build_article(
             event,
-            title=link,
+            title=link or str_y[1][:40],
             description="⬇️ Click to Download",
             thumbnail=photo,
             media=photo,
@@ -559,35 +614,51 @@ async def hide_toll_secret(event, query, match, match3):
             query = query[7:]
             info_type = ["secret", "can", "show message 🔐"]
         if "|" in query:
-            iris, query = query.replace(" |", "|").replace("| ", "|").split("|")
-            users = iris.split(" ")
+            iris, query = query.replace(" |", "|").replace("| ", "|").split("|", 1)
+            users = [u for u in iris.split(" ") if u]
         else:
-            user, query = query.split(" ", 1)
+            parts = query.split(" ", 1)
+            if len(parts) < 2 or not parts[1].strip():
+                return None
+            user, query = parts
             users = [user]
         for user in users:
+            user = user.strip()
+            if not user:
+                continue
+            if user.startswith("@"):
+                user = user[1:]
             usr = int(user) if user.isdigit() else user
             try:
-                u = await event.client.get_entity(usr)
-            except ValueError:
-                return
-            if u.username:
+                # Resolve via userbot — bots often cannot resolve strangers
+                u = await catub.get_entity(usr)
+            except Exception:
+                try:
+                    u = await event.client.get_entity(usr)
+                except Exception:
+                    return None
+            if getattr(u, "username", None):
                 sandy += f"@{u.username}"
             else:
-                sandy += f"[{u.first_name}](tg://user?id={u.id})"
+                sandy += f"[{getattr(u, 'first_name', None) or 'User'}](tg://user?id={u.id})"
             user_list.append(u.id)
             sandy += " "
         sandy = sandy[:-1]
+        if not user_list:
+            return None
     old_msg = os.path.join("./userbot", f"{info_type[0]}.txt")
     try:
         jsondata = json.load(open(old_msg))
     except Exception:
         jsondata = False
     timestamp = int(time.time() * 2)
-    new_msg = {
-        str(timestamp): {"text": query}
+    payload = (
+        {"text": query}
         if match3
         else {"userid": user_list, "text": query}
-    }
+    )
+    new_msg = {str(timestamp): payload}
+    put_whisper(info_type[0], timestamp, payload)
     buttons = [Button.inline(info_type[2], data=f"{info_type[0]}_{timestamp}")]
 
     result = await build_article(

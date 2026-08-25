@@ -7,31 +7,36 @@
 # Please see: https://github.com/TgCatUB/catuserbot/blob/master/LICENSE
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-import json
-import os
 import re
 
 from telethon.events import CallbackQuery
 
 from userbot import catub
+from userbot.assistant.whisper_store import get_whisper
+
+# Telegram callback alert hard limit
+_ALERT_LIMIT = 200
+
+
+def _fit_alert(text: str) -> str:
+    text = text or ""
+    if len(text) <= _ALERT_LIMIT:
+        return text
+    return text[: _ALERT_LIMIT - 1].rstrip() + "…"
 
 
 @catub.tgbot.on(CallbackQuery(data=re.compile(b"secret_(.*)")))
 async def on_plug_in_callback_query_handler(event):
-    timestamp = int(event.pattern_match.group(1).decode("UTF-8"))
-    if os.path.exists("./userbot/secret.txt"):
-        jsondata = json.load(open("./userbot/secret.txt"))
-        try:
-            message = jsondata[f"{timestamp}"]
-            userid = message["userid"]
-            ids = userid + [catub.uid]
-            if event.query.user_id in ids:
-                encrypted_tcxt = message["text"]
-                reply_pop_up_alert = encrypted_tcxt
-            else:
-                reply_pop_up_alert = "why were you looking at this shit go away and do your own work, idiot"
-        except KeyError:
-            reply_pop_up_alert = "This message no longer exists in catub server"
+    timestamp = event.pattern_match.group(1).decode("UTF-8")
+    message = get_whisper("secret", timestamp)
+    if not message:
+        return await event.answer(
+            "This message no longer exists", cache_time=0, alert=True
+        )
+    userid = message.get("userid") or []
+    ids = list(userid) + [catub.uid]
+    if event.query.user_id in ids:
+        reply_pop_up_alert = _fit_alert(message.get("text") or "")
     else:
-        reply_pop_up_alert = "This message no longer exists "
+        reply_pop_up_alert = "This secret is not for you."
     await event.answer(reply_pop_up_alert, cache_time=0, alert=True)
