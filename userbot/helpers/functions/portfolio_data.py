@@ -1,6 +1,7 @@
 # Portfolio card content — keep in sync with HENOK_FULL_PROFILE in conversation.py
 
 import html
+import unicodedata
 
 PORTFOLIO = {
     "name": "👋 I am Henok Enyew Andargie",
@@ -40,6 +41,33 @@ PORTFOLIO = {
 
 _BORDER_TOP = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 _BORDER_BOT = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+_BOX_MIN_INNER = 31
+
+
+def _display_width(text: str) -> int:
+    """Terminal/monospace column width (emoji/CJK count as 2)."""
+    width = 0
+    for ch in text:
+        if unicodedata.combining(ch) or unicodedata.category(ch) in ("Cf", "Mn", "Me"):
+            continue
+        if unicodedata.east_asian_width(ch) in ("F", "W"):
+            width += 2
+        else:
+            width += 1
+    return width
+
+
+def _pad_display(text: str, width: int) -> str:
+    return text + (" " * max(0, width - _display_width(text)))
+
+
+def _ascii_box(lines: list[str], min_inner: int = _BOX_MIN_INNER) -> str:
+    """Build a box whose right border aligns even when lines contain emoji."""
+    inner = max(min_inner, max((_display_width(line) for line in lines), default=0))
+    top = "┌" + "─" * (inner + 2) + "┐"
+    mid = [f"│ {_pad_display(line, inner)} │" for line in lines]
+    bot = "└" + "─" * (inner + 2) + "┘"
+    return "\n".join([top, *mid, bot])
 
 
 def _link_row(resume_url: str | None = None) -> str:
@@ -67,13 +95,7 @@ def build_portfolio_html(
     tagline = html.escape(p["tagline"])
     skills = html.escape(p["skills"])
 
-    pre_block = (
-        "┌─────────────────────────────────┐\n"
-        f"│ {name:<31} │\n"
-        f"│ {title:<31} │\n"
-        f"│ {location:<31} │\n"
-        "└─────────────────────────────────┘"
-    )
+    pre_block = _ascii_box([name, title, location])
 
     lines = [
         _BORDER_TOP,
