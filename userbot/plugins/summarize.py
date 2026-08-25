@@ -1,7 +1,8 @@
 # Text / chat summarizer via AI
-# .summarize / .sum — DM + group aware
+# .summarize / .sum — DM + group aware, optional focus prompt
 
 import os
+import re
 
 import requests
 from telethon.tl.types import User
@@ -18,6 +19,33 @@ plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
 MAX_INPUT = 6000
 MAX_RANGE = 100
+
+_USAGE_HINT = (
+    "**Usage:**\n"
+    "`.summarize` / `.sum` (reply) — texts after that message\n"
+    "`.sum tell me where he told me to meet` (reply) — focused summary\n"
+    "`.summarizethis` / `.sumthis` — just the replied message\n"
+    "`.summarize 50` — last 50 in this chat\n"
+    "`.summarize 30 key deadlines only` — last 30 with focus"
+)
+
+
+def _parse_summarize_arg(raw: str | None) -> tuple[str, str | None, int | None]:
+    """
+    Returns (mode, focus, count).
+    mode: empty | count | focus | count_focus
+
+    Anything after a space is a focus prompt — use .sumthis for one message only.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "empty", None, None
+    if text.isdigit():
+        return "count", None, int(text)
+    m = re.match(r"^(\d+)\s+(.+)$", text)
+    if m:
+        return "count_focus", m.group(2).strip(), int(m.group(1))
+    return "focus", text, None
 
 
 async def _stt_from_file(path: str, mime: str) -> str:
@@ -65,7 +93,7 @@ async def _format_messages(msgs) -> str:
     return "\n".join(lines)
 
 
-async def _summarize_text(event, text: str):
+async def _summarize_text(event, text: str, focus: str | None = None):
     if len(text) > MAX_INPUT:
         text = text[:MAX_INPUT] + "\n\n...(truncated for length)"
     thinking = await edit_or_reply(event, "**Summarizing...**")
@@ -74,18 +102,24 @@ async def _summarize_text(event, text: str):
     except Exception as e:
         return await thinking.edit(f"**AI not configured:** {e}")
     try:
+        if focus:
+            user_msg = f"Summarize this (focus: {focus}):\n\n{text}"
+        else:
+            user_msg = f"Summarize this:\n\n{text}"
         messages = conv_engine.build_messages(
-            current_message=f"Summarize this:\n\n{text}",
+            current_message=user_msg,
             is_owner_direct=True,
             owner_notes=ai_state.get_owner_notes(limit=5),
             summarize_mode=True,
+            summarize_focus=focus,
         )
         response = await provider.generate_response(
             messages=messages, temperature=0.4, max_tokens=500
         )
         if not response:
             return await thinking.edit("**Empty summary. Try again.**")
-        out = f"**Summary:**\n\n{response}"
+        header = "**Focused summary:**" if focus else "**Summary:**"
+        out = f"{header}\n\n{response}"
         if len(out) > 4000:
             out = out[:3900] + "\n...(truncated)"
         await thinking.edit(out)
@@ -94,7 +128,7 @@ async def _summarize_text(event, text: str):
         await thinking.edit(f"**Error:** {e}")
 
 
-async def _summarize_voice(event, reply):
+async def _summarize_voice(event, reply, focus: str | None = None):
     if not getattr(Config, "IBM_WATSON_CRED_URL", None):
         return await edit_delete(
             event, "**Voice summarize needs IBM Watson STT configured.**"
@@ -109,22 +143,21 @@ async def _summarize_voice(event, reply):
     if not text:
         return await edit_delete(catevent, "**Could not transcribe audio.**")
     await catevent.delete()
-    return await _summarize_text(event, text)
+    return await _summarize_text(event, text, focus=focus)
 
 
-async def _summarize_last_n(event, n: int):
+async def _summarize_last_n(event, n: int, focus: str | None = None):
     """Last N messages in current chat (DM or group)."""
     n = max(1, min(n, MAX_RANGE))
     msgs = await event.client.get_messages(event.chat_id, limit=n)
-    # Exclude the command message itself
     rows = [m for m in reversed(msgs) if m.id != event.id]
     text = await _format_messages(rows)
     if not text:
         return await edit_delete(event, "**No text messages to summarize.**")
-    return await _summarize_text(event, text)
+    return await _summarize_text(event, text, focus=focus)
 
 
-async def _summarize_after_reply(event, reply):
+async def _summarize_after_reply(event, reply, focus: str | None = None):
     """All text messages after the replied message up to (not including) the command."""
     msgs = await event.client.get_messages(
         event.chat_id,
@@ -132,7 +165,6 @@ async def _summarize_after_reply(event, reply):
         max_id=event.id,
         limit=MAX_RANGE,
     )
-    # Telethon returns newest-first; chronological for the model
     rows = list(reversed(msgs))
     text = await _format_messages(rows)
     if not text:
@@ -141,84 +173,74 @@ async def _summarize_after_reply(event, reply):
             "**No text messages after that.** Reply to an earlier message, "
             "or use `.summarizethis` / `.sumthis` for just that one.",
         )
-    return await _summarize_text(event, text)
+    return await _summarize_text(event, text, focus=focus)
 
 
-async def _summarize_single_reply(event, reply):
+async def _summarize_single_reply(event, reply, focus: str | None = None):
     mediatype = await media_type(reply)
     if mediatype in ["Voice", "Audio"]:
-        return await _summarize_voice(event, reply)
+        return await _summarize_voice(event, reply, focus=focus)
     text = reply.message or reply.text
     if not text:
         return await edit_delete(event, "**Nothing to summarize in that message.**")
-    return await _summarize_text(event, text)
+    return await _summarize_text(event, text, focus=focus)
 
 
 async def _run_summarize(event, arg: str | None):
     """
     Semantics:
-      .summarize / .sum <N>           → last N msgs (DM or group)
-      .summarize this (reply)         → only the replied message
-      .summarize (reply)              → all texts AFTER the replied message
-      .summarize (reply to voice)     → STT then summarize that voice
+      .summarize / .sum           → after-reply generic (with reply)
+      .summarize / .sum <focus>   → after-reply + focus (with reply)
+      .summarize <N>              → last N messages
+      .summarize <N> <focus>      → last N + focus
+      Single message only → .sumthis / .summarizethis (no space)
     """
-    arg = (arg or "").strip().lower()
+    mode, focus, count = _parse_summarize_arg(arg)
     reply = await event.get_reply_message()
 
-    if arg == "this":
-        if not reply:
-            return await edit_delete(
-                event, "**Reply** to a message with `.summarize this`"
-            )
-        return await _summarize_single_reply(event, reply)
+    if mode == "count":
+        return await _summarize_last_n(event, count)
 
-    if arg.isdigit():
-        return await _summarize_last_n(event, int(arg))
+    if mode == "count_focus":
+        return await _summarize_last_n(event, count, focus=focus)
 
-    if arg and not reply:
-        return await edit_delete(
-            event,
-            "**Usage:**\n"
-            "`.summarize` / `.sum` (reply) — texts after that message\n"
-            "`.summarizethis` / `.sumthis` — just the replied message\n"
-            "`.summarize 50` — last 50 in this chat (DM or group)",
-        )
+    if mode == "focus" and not reply:
+        return await edit_delete(event, _USAGE_HINT)
 
-    if reply:
+    if mode == "focus" and reply:
         mediatype = await media_type(reply)
-        # Voice/audio without "this" still summarizes that clip
+        if mediatype in ["Voice", "Audio"]:
+            return await _summarize_single_reply(event, reply, focus=focus)
+        return await _summarize_after_reply(event, reply, focus=focus)
+
+    if mode == "empty" and reply:
+        mediatype = await media_type(reply)
         if mediatype in ["Voice", "Audio"]:
             return await _summarize_single_reply(event, reply)
         return await _summarize_after_reply(event, reply)
 
-    return await edit_delete(
-        event,
-        "**Usage:**\n"
-        "`.summarize` / `.sum` (reply) — texts after that message\n"
-        "`.summarize this` — just the replied message\n"
-        "`.summarize 50` — last 50 in this chat (DM or group)",
-    )
+    return await edit_delete(event, _USAGE_HINT)
 
 
 _USAGE_INFO = {
     "header": "Summarize text, voice, or chat ranges",
     "description": (
-        "Works in DMs and groups. Reply + `.sum` / `.summarize` summarizes everything "
-        "after that message. Use `.sumthis` / `.summarizethis` for only the replied "
-        "message. Pass a number for last N messages."
+        "Works in DMs and groups. Reply + `.sum` summarizes everything after that message. "
+        "Text after a space is a focus prompt. For one message only, use `.sumthis` (no space)."
     ),
     "usage": [
         "{tr}summarize (reply) — all texts after that message",
+        "{tr}sum tell me where he told me to meet (reply) — focused",
         "{tr}summarizethis (reply) — only that message",
         "{tr}sumthis (reply) — short alias for single message",
         "{tr}summarize 50 — last 50 in DM or group",
-        "{tr}sum … — short alias",
+        "{tr}summarize 30 key deadlines only — last 30 with focus",
     ],
     "examples": [
         "{tr}summarize",
+        "{tr}sum tell me where he told me to meet",
         "{tr}summarizethis",
-        "{tr}sumthis",
-        "{tr}summarize 30",
+        "{tr}summarize 30 who agreed to pay",
     ],
 }
 
