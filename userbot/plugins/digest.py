@@ -91,36 +91,55 @@ async def _optional_football_line():
         return None
 
 
+# Telegram photo caption hard limit
+_CAPTION_LIMIT = 1024
+
+
+def _fit_caption(text: str, limit: int = _CAPTION_LIMIT) -> str:
+    """Fit digest into one photo caption without breaking mid-word when possible."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    # Prefer breaking on a newline so markdown stays cleaner
+    nl = cut.rfind("\n")
+    if nl >= limit // 2:
+        cut = cut[:nl]
+    return cut.rstrip() + "…"
+
+
 async def send_digest(client, chat_id=None, period: str | None = None):
-    """Build and deliver digest to Saved Messages (or chat_id) with greeting photo."""
+    """Build and deliver digest as one message (photo + caption)."""
     chat = chat_id or _digest_target()
     period = resolve_period(period)
 
     inbox = await collect_unread_inbox(client)
     football = await _optional_football_line()
-    text, greeting, image_url = await build_digest_text(
+    text, _greeting, image_url = await build_digest_text(
         inbox=inbox,
         ai_football_line=football,
         period=period,
         github_cache=_github_cache,
     )
 
-    # Photo with short greeting caption, then full digest body
+    caption = _fit_caption(text)
+    sent = False
     with contextlib.suppress(Exception):
         await client.send_file(
             chat,
             image_url,
-            caption=greeting,
+            caption=caption,
             parse_mode="md",
             link_preview=False,
         )
+        sent = True
 
-    # Split if over Telegram limit
-    if len(text) <= 4000:
-        await client.send_message(chat, text, parse_mode="md", link_preview=False)
-    else:
-        await client.send_message(chat, text[:3900] + "\n…", parse_mode="md")
-        await client.send_message(chat, text[3900:7800], parse_mode="md")
+    # Fallback: text-only if photo download/send failed
+    if not sent:
+        if len(text) <= 4000:
+            await client.send_message(chat, text, parse_mode="md", link_preview=False)
+        else:
+            await client.send_message(chat, text[:3900] + "\n…", parse_mode="md")
+            await client.send_message(chat, text[3900:7800], parse_mode="md")
 
     # Clear AFK ring buffer if anything was logged (legacy supplemental)
     with contextlib.suppress(Exception):
@@ -196,8 +215,8 @@ def _next_run_str(sched) -> str:
     info={
         "header": "Morning & night personal briefing",
         "description": (
-            "Delivers to Saved Messages by default with weather (°C), unread DMs, "
-            "group mentions, greeting, and a morning/night photo. "
+            "Delivers to Saved Messages by default as one message (photo + digest caption) "
+            "with weather (°C), unread DMs, group mentions, and greeting. "
             "Auto runs twice daily (Addis Ababa)."
         ),
         "usage": [
