@@ -12,6 +12,7 @@ import re
 import urllib.request
 from collections import defaultdict
 
+import requests
 import ujson
 import yt_dlp
 from telethon import Button
@@ -31,13 +32,49 @@ YOUTUBE_REGEX = re.compile(
 )
 PATH = "./userbot/cache/ytsearch.json"
 
-song_dl = "yt-dlp --force-ipv4 --write-thumbnail --add-metadata --embed-thumbnail -o './temp/%(title)s.%(ext)s' --extract-audio --audio-format mp3 --audio-quality {QUALITY} {video_link}"
+_YT_EXTRACTOR_ARGS = '--extractor-args "youtube:player_client=android,mweb,web"'
 
-thumb_dl = "yt-dlp --force-ipv4 -o './temp/%(title)s.%(ext)s' --write-thumbnail --skip-download {video_link}"
-video_dl = "yt-dlp --force-ipv4 --write-thumbnail --add-metadata --embed-thumbnail -o './temp/%(title)s.%(ext)s' -f 'best[height<=480]' {video_link}"
-name_dl = (
-    "yt-dlp --force-ipv4 --get-filename -o './temp/%(title)s.%(ext)s' {video_link}"
+song_dl = (
+    "yt-dlp --force-ipv4 --retries 3 --fragment-retries 3 "
+    f"{_YT_EXTRACTOR_ARGS} "
+    "--write-thumbnail --add-metadata --embed-thumbnail "
+    "-o './temp/%(title)s.%(ext)s' --extract-audio --audio-format mp3 "
+    "--audio-quality {QUALITY} {video_link}"
 )
+
+thumb_dl = (
+    "yt-dlp --force-ipv4 "
+    f"{_YT_EXTRACTOR_ARGS} "
+    "-o './temp/%(title)s.%(ext)s' --write-thumbnail --skip-download {video_link}"
+)
+video_dl = (
+    "yt-dlp --force-ipv4 --retries 3 "
+    f"{_YT_EXTRACTOR_ARGS} "
+    "--write-thumbnail --add-metadata --embed-thumbnail "
+    "-o './temp/%(title)s.%(ext)s' -f 'best[height<=480]/best' {video_link}"
+)
+name_dl = (
+    "yt-dlp --force-ipv4 "
+    f"{_YT_EXTRACTOR_ARGS} "
+    "--get-filename -o './temp/%(title)s.%(ext)s' {video_link}"
+)
+
+# Public search APIs (no key) — used when yt-dlp ytsearch SSL fails on HF
+PIPED_INSTANCES = [
+    "https://api.piped.private.coffee",
+    "https://api.piped.yt",
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi-libre.kavin.rocks",
+    "https://pipedapi.darkness.services",
+    "https://pipedapi.leptons.xyz",
+]
+INVIDIOUS_INSTANCES = [
+    "https://inv.nadeko.net",
+    "https://invidious.nerdvpn.de",
+    "https://yewtu.be",
+    "https://invidious.fdn.fr",
+    "https://vid.puffyan.us",
+]
 
 
 def _format_duration(seconds):
@@ -110,30 +147,57 @@ def _normalize_ytdlp_entry(entry):
     }
 
 
-def _videos_search_sync(query, limit=15):
-    """Search YouTube videos; returns VideosSearch-compatible result dict."""
-    query = (query or "").strip()
-    if not query:
-        return {"result": []}
+def _result_from_fields(
+    video_id,
+    title,
+    duration_seconds=None,
+    view_count=None,
+    description=None,
+    channel_name=None,
+    channel_url=None,
+    published=None,
+):
+    if not video_id:
+        return None
+    duration = _format_duration(duration_seconds)
+    description = (description or "").strip()
+    description_snippet = [{"text": description}] if description else None
+    return {
+        "id": video_id,
+        "title": title or "Unknown",
+        "link": f"{BASE_YT_URL}{video_id}",
+        "duration": duration,
+        "descriptionSnippet": description_snippet,
+        "viewCount": {"short": _format_view_count_short(view_count)},
+        "accessibility": {"duration": duration, "title": title or "Unknown"},
+        "publishedTime": published or "Unknown",
+        "channel": (
+            {"link": channel_url, "name": channel_name or "Unknown"}
+            if channel_url or channel_name
+            else None
+        ),
+    }
 
+
+def _search_ytdlp(query, limit):
     opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": "in_playlist",
-        "extractor_args": {"youtube": {"player_client": ["mweb", "web"]}},
+        "force_ipv4": True,
+        "retries": 2,
+        "socket_timeout": 20,
+        "nocheckcertificate": True,
+        "extractor_args": {
+            "youtube": {"player_client": ["android", "mweb", "web"]}
+        },
     }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{int(limit)}:{query}", download=False)
-    except Exception as e:
-        LOGS.error(f"YouTube search failed for '{query}': {e}")
-        return {"result": []}
-
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{int(limit)}:{query}", download=False)
     entries = info.get("entries") if info else None
     if not entries:
-        return {"result": []}
-
+        return []
     results = []
     for entry in entries:
         if not entry:
@@ -141,7 +205,210 @@ def _videos_search_sync(query, limit=15):
         normalized = _normalize_ytdlp_entry(entry)
         if normalized.get("id"):
             results.append(normalized)
-    return {"result": results}
+    return results
+
+
+def _search_piped(query, limit):
+    results = []
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    for base in PIPED_INSTANCES:
+        try:
+            resp = requests.get(
+                f"{base}/search",
+                params={"q": query, "filter": "videos"},
+                timeout=12,
+                headers=headers,
+            )
+            if not resp.ok:
+                continue
+            items = resp.json().get("items") or []
+            for item in items:
+                itype = item.get("type")
+                if itype and itype not in ("stream", "video"):
+                    continue
+                raw_url = item.get("url") or item.get("id") or ""
+                video_id = None
+                if "/watch?v=" in str(raw_url):
+                    video_id = str(raw_url).split("/watch?v=")[-1].split("&")[0]
+                elif "youtu" in str(raw_url):
+                    m = YOUTUBE_REGEX.search(str(raw_url))
+                    video_id = m.group(1) if m else None
+                elif re.fullmatch(r"[\w-]{11}", str(raw_url).strip("/")):
+                    video_id = str(raw_url).strip("/")
+                if not video_id:
+                    continue
+                up = item.get("uploaderUrl") or ""
+                channel_url = None
+                if isinstance(up, str) and up:
+                    channel_url = up if up.startswith("http") else f"https://youtube.com{up}"
+                row = _result_from_fields(
+                    video_id=video_id,
+                    title=item.get("title"),
+                    duration_seconds=item.get("duration"),
+                    view_count=item.get("views"),
+                    description=item.get("shortDescription") or item.get("description"),
+                    channel_name=item.get("uploader"),
+                    channel_url=channel_url,
+                    published=item.get("uploadedDate") or "Unknown",
+                )
+                if row:
+                    results.append(row)
+                if len(results) >= limit:
+                    return results
+            if results:
+                return results
+        except Exception as e:
+            LOGS.debug(f"Piped search via {base} failed: {e}")
+            continue
+    return results
+
+
+def _search_invidious(query, limit):
+    results = []
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    for base in INVIDIOUS_INSTANCES:
+        try:
+            resp = requests.get(
+                f"{base}/api/v1/search",
+                params={"q": query, "type": "video"},
+                timeout=12,
+                headers=headers,
+            )
+            if not resp.ok:
+                continue
+            payload = resp.json()
+            items = payload if isinstance(payload, list) else []
+            for item in items:
+                if item.get("type") and item.get("type") != "video":
+                    continue
+                video_id = item.get("videoId")
+                author_id = item.get("authorId")
+                channel_url = (
+                    f"https://www.youtube.com/channel/{author_id}" if author_id else None
+                )
+                row = _result_from_fields(
+                    video_id=video_id,
+                    title=item.get("title"),
+                    duration_seconds=item.get("lengthSeconds"),
+                    view_count=item.get("viewCount"),
+                    description=item.get("description"),
+                    channel_name=item.get("author"),
+                    channel_url=channel_url,
+                    published=item.get("publishedText") or "Unknown",
+                )
+                if row:
+                    results.append(row)
+                if len(results) >= limit:
+                    return results
+            if results:
+                return results
+        except Exception as e:
+            LOGS.debug(f"Invidious search via {base} failed: {e}")
+            continue
+    return results
+
+
+def _search_youtube_html(query, limit):
+    """Last-resort scrape of YouTube results page for video IDs."""
+    try:
+        from urllib.parse import quote_plus
+
+        resp = requests.get(
+            f"https://www.youtube.com/results?search_query={quote_plus(query)}",
+            timeout=15,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        if not resp.ok:
+            return []
+        # Prefer structured ytInitialData videoIds, fall back to watch?v=
+        ids = re.findall(r'"videoId":"([\w-]{11})"', resp.text)
+        if not ids:
+            ids = re.findall(r"watch\?v=([\w-]{11})", resp.text)
+        seen = set()
+        results = []
+        for vid in ids:
+            if vid in seen:
+                continue
+            seen.add(vid)
+            row = _result_from_fields(video_id=vid, title=f"YouTube video {vid}")
+            if row:
+                # Try to pick nearby title from JSON blob
+                title_m = re.search(
+                    rf'"videoId":"{re.escape(vid)}".*?"title":\{{"runs":\[\{{"text":"(.*?)"\}}',
+                    resp.text,
+                )
+                if not title_m:
+                    title_m = re.search(
+                        rf'"title":\{{"runs":\[\{{"text":"(.*?)"\}}\].*?"videoId":"{re.escape(vid)}"',
+                        resp.text,
+                    )
+                if title_m:
+                    row["title"] = (
+                        title_m.group(1)
+                        .encode("utf-8")
+                        .decode("unicode_escape", errors="ignore")
+                    )
+                    row["accessibility"]["title"] = row["title"]
+                results.append(row)
+            if len(results) >= limit:
+                break
+        return results
+    except Exception as e:
+        LOGS.debug(f"YouTube HTML search failed: {e}")
+        return []
+
+
+def _videos_search_sync(query, limit=15):
+    """Search YouTube: yt-dlp → Piped → Invidious → HTML scrape."""
+    query = (query or "").strip()
+    if not query:
+        return {"result": []}
+    limit = max(1, min(int(limit), 25))
+
+    # 1) yt-dlp
+    try:
+        results = _search_ytdlp(query, limit)
+        if results:
+            return {"result": results[:limit]}
+    except Exception as e:
+        LOGS.warning(f"yt-dlp search failed for '{query}': {e}")
+
+    # 2) Piped
+    try:
+        results = _search_piped(query, limit)
+        if results:
+            LOGS.info(f"YouTube search via Piped for '{query}' ({len(results)} hits)")
+            return {"result": results[:limit]}
+    except Exception as e:
+        LOGS.warning(f"Piped search failed for '{query}': {e}")
+
+    # 3) Invidious
+    try:
+        results = _search_invidious(query, limit)
+        if results:
+            LOGS.info(f"YouTube search via Invidious for '{query}' ({len(results)} hits)")
+            return {"result": results[:limit]}
+    except Exception as e:
+        LOGS.warning(f"Invidious search failed for '{query}': {e}")
+
+    # 4) YouTube HTML scrape
+    try:
+        results = _search_youtube_html(query, limit)
+        if results:
+            LOGS.info(f"YouTube search via HTML scrape for '{query}' ({len(results)} hits)")
+            return {"result": results[:limit]}
+    except Exception as e:
+        LOGS.warning(f"HTML search failed for '{query}': {e}")
+
+    LOGS.error(f"YouTube search exhausted all backends for '{query}'")
+    return {"result": []}
 
 
 @pool.run_in_thread
@@ -396,17 +663,19 @@ def _tubeDl(url: str, starttime, uid: str):
         "addmetadata": True,
         "geo_bypass": True,
         "nocheckcertificate": True,
+        "force_ipv4": True,
+        "retries": 3,
         "outtmpl": os.path.join(
             Config.TEMP_DIR, str(starttime), "%(title)s-%(format)s.%(ext)s"
         ),
-        #         "logger": LOGS,
         "format": uid,
         "writethumbnail": True,
         "prefer_ffmpeg": True,
+        "extractor_args": {
+            "youtube": {"player_client": ["android", "mweb", "web"]}
+        },
         "postprocessors": [
             {"key": "FFmpegMetadata"}
-            # ERROR R15: Memory quota vastly exceeded
-            # {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
         ],
         "quiet": True,
     }
@@ -432,8 +701,10 @@ def _mp3Dl(url: str, starttime, uid: str):
         "format": "bestaudio/best",
         "geo_bypass": True,
         "nocheckcertificate": True,
+        "force_ipv4": True,
+        "retries": 3,
         "extractor_args": {
-            "youtube": {"player_client": ["mweb", "web"]}
+            "youtube": {"player_client": ["android", "mweb", "web"]}
         },
         "postprocessors": [
             {

@@ -40,8 +40,8 @@ from ..helpers import progress, reply_id
 from ..helpers.functions import delete_conv
 from ..helpers.functions.utube import _mp3Dl, get_yt_video_id, get_ytthumb, ytsearch
 from ..helpers.utils import _format
+from ..helpers.functions.clip_router import TT_SAVE_BOT, talk_to_bot
 from . import catub
-from .socialdl import TT_SAVE_BOT, _talk_to_bot
 
 BASE_YT_URL = "https://www.youtube.com/watch?v="
 extractor = URLExtract()
@@ -257,7 +257,6 @@ async def download_audio(event):  # sourcery skip: low-code-quality
 )
 async def download_video(event):
     """Download YouTube video via @ttsavebot."""
-    from .socialdl import _talk_to_bot
     msg = event.pattern_match.group(1)
     rmsg = await event.get_reply_message()
     if not msg and rmsg:
@@ -269,10 +268,8 @@ async def download_video(event):
     if "youtu" not in url:
         return await edit_or_reply(event, "`That doesn't look like a YouTube URL.`")
     catevent = await edit_or_reply(event, "`Fetching YouTube video...`")
-    reply_to_id = await reply_id(event)
-    await _talk_to_bot(
-        event, catevent, reply_to_id,
-        "ttsavebot", url,
+    await talk_to_bot(
+        event, catevent, TT_SAVE_BOT, url,
         first_timeout=120, more_timeout=10,
     )
 
@@ -361,10 +358,9 @@ async def insta_dl(event):
     reply_to_id = await reply_id(event)
 
     # Primary: reliable bot flow used by .inv
-    if await _talk_to_bot(
+    if await talk_to_bot(
         event,
         catevent,
-        reply_to_id,
         TT_SAVE_BOT,
         link,
         first_timeout=90,
