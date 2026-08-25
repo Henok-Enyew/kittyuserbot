@@ -139,7 +139,7 @@ async def _summarize_after_reply(event, reply):
         return await edit_delete(
             event,
             "**No text messages after that.** Reply to an earlier message, "
-            "or use `.summarize this` for just that one.",
+            "or use `.summarizethis` / `.sumthis` for just that one.",
         )
     return await _summarize_text(event, text)
 
@@ -180,7 +180,7 @@ async def _run_summarize(event, arg: str | None):
             event,
             "**Usage:**\n"
             "`.summarize` / `.sum` (reply) — texts after that message\n"
-            "`.summarize this` — just the replied message\n"
+            "`.summarizethis` / `.sumthis` — just the replied message\n"
             "`.summarize 50` — last 50 in this chat (DM or group)",
         )
 
@@ -203,22 +203,61 @@ async def _run_summarize(event, arg: str | None):
 _USAGE_INFO = {
     "header": "Summarize text, voice, or chat ranges",
     "description": (
-        "Works in DMs and groups. Reply to summarize everything after that message; "
-        "use 'this' for only the replied message; pass a number for last N messages."
+        "Works in DMs and groups. Reply + `.sum` / `.summarize` summarizes everything "
+        "after that message. Use `.sumthis` / `.summarizethis` for only the replied "
+        "message. Pass a number for last N messages."
     ),
     "usage": [
         "{tr}summarize (reply) — all texts after that message",
-        "{tr}summarize this (reply) — only that message",
+        "{tr}summarizethis (reply) — only that message",
+        "{tr}sumthis (reply) — short alias for single message",
         "{tr}summarize 50 — last 50 in DM or group",
         "{tr}sum … — short alias",
     ],
     "examples": [
         "{tr}summarize",
-        "{tr}summarize this",
+        "{tr}summarizethis",
+        "{tr}sumthis",
         "{tr}summarize 30",
-        "{tr}sum this",
     ],
 }
+
+
+@catub.cat_cmd(
+    pattern=r"summarizethis$",
+    command=("summarizethis", plugin_category),
+    info={
+        "header": "Summarize only the replied message",
+        "description": "Reply to a text or voice message and summarize just that one.",
+        "usage": "{tr}summarizethis (reply to message)",
+        "examples": "{tr}summarizethis",
+    },
+)
+async def summarizethis_cmd(event):
+    "Summarize only the replied message."
+    reply = await event.get_reply_message()
+    if not reply:
+        return await edit_delete(
+            event, "**Reply** to a message with `.summarizethis`"
+        )
+    await _summarize_single_reply(event, reply)
+
+
+@catub.cat_cmd(
+    pattern=r"sumthis$",
+    command=("sumthis", plugin_category),
+    info={
+        "header": "Short alias — summarize only the replied message",
+        "usage": "{tr}sumthis (reply to message)",
+        "examples": "{tr}sumthis",
+    },
+)
+async def sumthis_cmd(event):
+    "Summarize only the replied message (short alias)."
+    reply = await event.get_reply_message()
+    if not reply:
+        return await edit_delete(event, "**Reply** to a message with `.sumthis`")
+    await _summarize_single_reply(event, reply)
 
 
 @catub.cat_cmd(

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from telethon.tl.types import Channel, Chat, InputMessagesFilterMentions, User
+from telethon.tl.types import Channel, Chat, User
+
+try:
+    from telethon.tl.types import InputMessagesFilterMentions
+except ImportError:
+    InputMessagesFilterMentions = None
 
 from userbot.core.logger import logging
 
@@ -95,11 +100,14 @@ async def collect_unread_inbox(
             ):
                 limit = min(unread_mentions, msgs_per_chat)
                 try:
-                    msgs = await client.get_messages(
-                        dialog.id,
-                        limit=limit,
-                        filter=InputMessagesFilterMentions(),
-                    )
+                    if InputMessagesFilterMentions is not None:
+                        msgs = await client.get_messages(
+                            dialog.id,
+                            limit=limit,
+                            filter=InputMessagesFilterMentions(),
+                        )
+                    else:
+                        msgs = await client.get_messages(dialog.id, limit=limit)
                 except Exception:
                     try:
                         msgs = await client.get_messages(dialog.id, limit=limit)

@@ -11,6 +11,7 @@ from userbot.ai_assistant.state import ai_state
 from userbot.core.logger import logging
 from userbot.core.managers import edit_delete, edit_or_reply
 from userbot.helpers.functions.digest_builder import (
+    ADDIS_TZ,
     addis_now,
     build_digest_text,
     resolve_period,
@@ -167,10 +168,16 @@ def _reschedule_digest_jobs(sched):
 def _ensure_scheduler():
     global _scheduler
     if _scheduler is None:
-        _scheduler = AsyncIOScheduler(timezone="Africa/Addis_Ababa")
-    _reschedule_digest_jobs(_scheduler)
+        _scheduler = AsyncIOScheduler(timezone=ADDIS_TZ)
+    try:
+        _reschedule_digest_jobs(_scheduler)
+    except Exception as e:
+        LOGS.error(f"digest scheduler reschedule failed: {e}")
     if _digest_auto() and not _scheduler.running:
-        _scheduler.start()
+        try:
+            _scheduler.start()
+        except Exception as e:
+            LOGS.error(f"digest scheduler start failed: {e}")
     return _scheduler
 
 
@@ -319,9 +326,14 @@ async def digest_pm_logger(event):
 
 
 def _init_digest_scheduler():
-    with contextlib.suppress(Exception):
+    try:
         if _digest_auto():
             _ensure_scheduler()
+    except Exception as e:
+        LOGS.error(f"digest scheduler init skipped: {e}")
 
 
-_init_digest_scheduler()
+try:
+    _init_digest_scheduler()
+except Exception as e:
+    LOGS.error(f"digest module scheduler init failed: {e}")
