@@ -1,8 +1,11 @@
 # Daily personal briefing — morning & night digests
 
 import contextlib
+from io import BytesIO
 
+import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from PIL import Image
 from telethon import events
 from telethon.tl.types import User
 
@@ -107,8 +110,33 @@ def _fit_caption(text: str, limit: int = _CAPTION_LIMIT) -> str:
     return cut.rstrip() + "…"
 
 
+def _download_digest_jpeg(image_url: str) -> BytesIO | None:
+    """
+    Download greeting image and re-encode as JPEG so Telegram treats it as a
+    photo (with caption), not a sticker/document.
+    """
+    try:
+        resp = requests.get(
+            image_url,
+            timeout=25,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        resp.raise_for_status()
+        img = Image.open(BytesIO(resp.content)).convert("RGB")
+        # Keep digest images reasonably sized for mobile
+        img.thumbnail((1280, 1280), getattr(Image, "Resampling", Image).LANCZOS)
+        out = BytesIO()
+        img.save(out, format="JPEG", quality=85, optimize=True)
+        out.name = "digest.jpg"
+        out.seek(0)
+        return out
+    except Exception as e:
+        LOGS.warning(f"digest image download/convert failed: {e}")
+        return None
+
+
 async def send_digest(client, chat_id=None, period: str | None = None):
-    """Build and deliver digest as one message (photo + caption)."""
+    """Build and deliver digest as one message (JPEG photo + caption)."""
     chat = chat_id or _digest_target()
     period = resolve_period(period)
 
@@ -123,15 +151,20 @@ async def send_digest(client, chat_id=None, period: str | None = None):
 
     caption = _fit_caption(text)
     sent = False
-    with contextlib.suppress(Exception):
-        await client.send_file(
-            chat,
-            image_url,
-            caption=caption,
-            parse_mode="md",
-            link_preview=False,
-        )
-        sent = True
+    photo = _download_digest_jpeg(image_url)
+    if photo is not None:
+        try:
+            await client.send_file(
+                chat,
+                photo,
+                caption=caption,
+                parse_mode="md",
+                force_document=False,
+                allow_cache=False,
+            )
+            sent = True
+        except Exception as e:
+            LOGS.warning(f"digest photo send failed: {e}")
 
     # Fallback: text-only if photo download/send failed
     if not sent:
