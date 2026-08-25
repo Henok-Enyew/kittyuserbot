@@ -3,7 +3,7 @@
 import html
 
 PORTFOLIO = {
-    "name": "Henok Enyew Andargie",
+    "name": "👋 I'm Henok Enyew Andargie",
     "title": "Full-stack Software Engineer",
     "location": "Addis Ababa, Ethiopia",
     "tagline": "Building products that ship — React, Django, Node, AI integration.",
