@@ -6,7 +6,7 @@ PORTFOLIO = {
     "name": "👋 I'm Henok Enyew Andargie",
     "title": "Full-stack Software Engineer",
     "location": "Addis Ababa, Ethiopia",
-    "tagline": "Building products that ship — React, Django, Node, AI integration.",
+    "tagline": "Building products that ship — React, Django, Node, Golang AI integration.",
     "projects": [
         {
             "name": "Pyyol",
@@ -14,18 +14,18 @@ PORTFOLIO = {
             "url": "https://pyyol.com",
         },
         {
-            "name": "FinAsk",
-            "desc": "AI university compare/discovery for Ethiopian students",
-            "url": "https://finask-frontend.vercel.app/",
-        },
-        {
             "name": "Tankwa Tours",
             "desc": "Production tourism booking platform",
             "url": "https://tankwatours.com/",
         },
+        {
+            "name": "FinAsk",
+            "desc": "AI university compare/discovery for Ethiopian students",
+            "url": "https://finask-frontend.vercel.app/",
+        },
     ],
     "skills": (
-        "React, TypeScript, Django, Node.js, PostgreSQL, Docker, "
+        "React, TypeScript, Django, Node.js, Golang, PostgreSQL, Docker, "
         "REST APIs, AI/LLM integration, TDD"
     ),
     "links": {
