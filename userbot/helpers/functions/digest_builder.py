@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import random
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import requests
 
-ADDIS_TZ = ZoneInfo("Africa/Addis_Ababa")
+try:
+    from zoneinfo import ZoneInfo
+
+    ADDIS_TZ = ZoneInfo("Africa/Addis_Ababa")
+except Exception:
+    import pytz
+
+    ADDIS_TZ = pytz.timezone("Africa/Addis_Ababa")
 
 CODING_TIPS = [
     "Prefer early returns over deep nesting.",
