@@ -17,6 +17,7 @@ from ..Config import Config
 from ..core.logger import logging
 from ..core.managers import edit_delete, edit_or_reply
 from ..helpers.functions import yt_search
+from ..helpers.functions.clip_router import YTB_AUDIO_BOT, talk_to_bot
 from ..helpers.tools import media_type
 from ..helpers.utils import reply_id
 from . import catub, song_download
@@ -50,26 +51,40 @@ async def _send_native_song(event, query, quality="128k", video=False):
     result = await song_download(
         video_link, catevent, quality=quality, video=video
     )
-    if not isinstance(result, tuple) or len(result) != 3:
+    if isinstance(result, tuple) and len(result) == 3:
+        media_file, catthumb, title = result
+        if media_file and os.path.exists(media_file):
+            await event.client.send_file(
+                event.chat_id,
+                media_file,
+                force_document=False,
+                caption=f"**Title:** `{title}`",
+                thumb=catthumb if catthumb and os.path.exists(catthumb) else None,
+                supports_streaming=True,
+                reply_to=reply_to_id,
+            )
+            await catevent.delete()
+            for file_path in (catthumb, media_file):
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+            return
+
+    # Native download failed (common SSL/extractor issues on HF) → bot fallback
+    if video:
+        await catevent.edit("`Native download failed. Trying bot fallback...`")
+        from ..helpers.functions.clip_router import TT_SAVE_BOT
+
+        await talk_to_bot(
+            event, catevent, TT_SAVE_BOT, video_link,
+            first_timeout=120, more_timeout=10,
+        )
         return
 
-    media_file, catthumb, title = result
-    if not media_file or not os.path.exists(media_file):
-        return
-
-    await event.client.send_file(
-        event.chat_id,
-        media_file,
-        force_document=False,
-        caption=f"**Title:** `{title}`",
-        thumb=catthumb if catthumb and os.path.exists(catthumb) else None,
-        supports_streaming=True,
-        reply_to=reply_to_id,
+    await catevent.edit("`Native download failed. Trying audio bot...`")
+    await talk_to_bot(
+        event, catevent, YTB_AUDIO_BOT, video_link,
+        first_timeout=120, more_timeout=10,
     )
-    await catevent.delete()
-    for file_path in (catthumb, media_file):
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
 
 
 @catub.cat_cmd(

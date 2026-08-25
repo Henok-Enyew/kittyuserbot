@@ -1,4 +1,4 @@
-# Daily personal briefing
+# Daily personal briefing — morning & night digests
 
 import contextlib
 
@@ -10,7 +10,12 @@ from userbot import catub
 from userbot.ai_assistant.state import ai_state
 from userbot.core.logger import logging
 from userbot.core.managers import edit_delete, edit_or_reply
-from userbot.helpers.functions.digest_builder import build_digest_text
+from userbot.helpers.functions.digest_builder import (
+    addis_now,
+    build_digest_text,
+    resolve_period,
+)
+from userbot.helpers.functions.digest_inbox import collect_unread_inbox
 from userbot.sql_helper import digest_sql
 from userbot.sql_helper.globals import addgvar, gvarstatus
 
@@ -29,11 +34,22 @@ def _digest_auto() -> bool:
 
 
 def _digest_hour() -> int:
+    """Morning hour (default 8)."""
     val = gvarstatus("DIGEST_HOUR")
     try:
         hour = int(val) if val is not None else 8
     except (TypeError, ValueError):
         hour = 8
+    return max(0, min(hour, 23))
+
+
+def _digest_evening_hour() -> int:
+    """Night hour (default 20 = 8 PM)."""
+    val = gvarstatus("DIGEST_EVENING_HOUR")
+    try:
+        hour = int(val) if val is not None else 20
+    except (TypeError, ValueError):
+        hour = 20
     return max(0, min(hour, 23))
 
 
@@ -51,7 +67,11 @@ def _digest_target():
 
 
 def _schedule_time_label() -> str:
-    return f"{_digest_hour():02d}:{_digest_minute():02d} Africa/Addis_Ababa"
+    m = _digest_minute()
+    return (
+        f"{_digest_hour():02d}:{m:02d} & {_digest_evening_hour():02d}:{m:02d} "
+        "Africa/Addis_Ababa"
+    )
 
 
 async def _optional_football_line():
@@ -70,51 +90,108 @@ async def _optional_football_line():
         return None
 
 
-async def send_digest(client, chat_id=None):
+async def send_digest(client, chat_id=None, period: str | None = None):
+    """Build and deliver digest to Saved Messages (or chat_id) with greeting photo."""
     chat = chat_id or _digest_target()
-    pm_log = digest_sql.get_pm_log_since(clear_after=True)
+    period = resolve_period(period)
+
+    inbox = await collect_unread_inbox(client)
     football = await _optional_football_line()
-    text = await build_digest_text(pm_log, ai_football_line=football)
-    await client.send_message(chat, text, parse_mode="md")
+    text, greeting, image_url = await build_digest_text(
+        inbox=inbox,
+        ai_football_line=football,
+        period=period,
+        github_cache=_github_cache,
+    )
+
+    # Photo with short greeting caption, then full digest body
+    with contextlib.suppress(Exception):
+        await client.send_file(
+            chat,
+            image_url,
+            caption=greeting,
+            parse_mode="md",
+            link_preview=False,
+        )
+
+    # Split if over Telegram limit
+    if len(text) <= 4000:
+        await client.send_message(chat, text, parse_mode="md", link_preview=False)
+    else:
+        await client.send_message(chat, text[:3900] + "\n…", parse_mode="md")
+        await client.send_message(chat, text[3900:7800], parse_mode="md")
+
+    # Clear AFK ring buffer if anything was logged (legacy supplemental)
+    with contextlib.suppress(Exception):
+        digest_sql.get_pm_log_since(clear_after=True)
 
 
-async def _scheduled_digest():
+async def _scheduled_digest_morning():
     try:
-        await send_digest(catub, "me")
+        await send_digest(catub, "me", period="morning")
     except Exception as e:
-        LOGS.error(f"scheduled digest failed: {e}")
+        LOGS.error(f"morning digest failed: {e}")
 
 
-def _reschedule_digest_job(sched):
-    """Add or update the daily digest cron job from gvars."""
+async def _scheduled_digest_night():
+    try:
+        await send_digest(catub, "me", period="night")
+    except Exception as e:
+        LOGS.error(f"night digest failed: {e}")
+
+
+def _reschedule_digest_jobs(sched):
+    """Morning + night cron jobs (Addis Ababa)."""
+    minute = _digest_minute()
     sched.add_job(
-        _scheduled_digest,
+        _scheduled_digest_morning,
         "cron",
         hour=_digest_hour(),
-        minute=_digest_minute(),
-        id="daily_digest",
+        minute=minute,
+        id="daily_digest_morning",
         replace_existing=True,
     )
+    sched.add_job(
+        _scheduled_digest_night,
+        "cron",
+        hour=_digest_evening_hour(),
+        minute=minute,
+        id="daily_digest_night",
+        replace_existing=True,
+    )
+    # Remove legacy single job if present
+    with contextlib.suppress(Exception):
+        sched.remove_job("daily_digest")
 
 
 def _ensure_scheduler():
     global _scheduler
     if _scheduler is None:
         _scheduler = AsyncIOScheduler(timezone="Africa/Addis_Ababa")
-    _reschedule_digest_job(_scheduler)
+    _reschedule_digest_jobs(_scheduler)
     if _digest_auto() and not _scheduler.running:
         _scheduler.start()
     return _scheduler
+
+
+def _next_run_str(sched) -> str:
+    times = []
+    for jid in ("daily_digest_morning", "daily_digest_night"):
+        job = sched.get_job(jid) if sched else None
+        if job and job.next_run_time:
+            times.append(job.next_run_time.strftime("%Y-%m-%d %H:%M %Z"))
+    return " | ".join(times) if times else "not scheduled"
 
 
 @catub.cat_cmd(
     pattern=r"digest(?:\s+(.+))?$",
     command=("digest", plugin_category),
     info={
-        "header": "Daily personal briefing",
+        "header": "Morning & night personal briefing",
         "description": (
-            "Morning briefing delivered to Saved Messages by default. "
-            "Auto schedule uses Africa/Addis_Ababa timezone."
+            "Delivers to Saved Messages by default with weather (°C), unread DMs, "
+            "group mentions, greeting, and a morning/night photo. "
+            "Auto runs twice daily (Addis Ababa)."
         ),
         "usage": [
             "{tr}digest",
@@ -123,11 +200,13 @@ def _ensure_scheduler():
             "{tr}digest auto on",
             "{tr}digest auto off",
             "{tr}digest time 8 0",
+            "{tr}digest time night 20 0",
             "{tr}digest status",
         ],
         "examples": [
             "{tr}digest",
-            "{tr}digest time 9 15",
+            "{tr}digest time 8 0",
+            "{tr}digest time night 20 0",
             "{tr}digest here",
         ],
     },
@@ -147,7 +226,7 @@ async def digest_cmd(event):
             return await edit_delete(
                 event,
                 f"**Digest auto:** ON ({_schedule_time_label()})",
-                5,
+                6,
             )
         if toggle == "off":
             addgvar("DIGEST_AUTO", "false")
@@ -158,60 +237,67 @@ async def digest_cmd(event):
     if parts and parts[0] == "status":
         auto = _digest_auto()
         sched = _ensure_scheduler()
-        job = sched.get_job("daily_digest") if sched else None
-        nxt = job.next_run_time if job else None
-        nxt_str = nxt.strftime("%Y-%m-%d %H:%M %Z") if nxt else "not scheduled"
         return await edit_or_reply(
             event,
             f"**Digest status**\n"
             f"Auto: {'ON' if auto else 'OFF'}\n"
             f"Schedule: `{_schedule_time_label()}`\n"
-            f"Next run: {nxt_str}\n"
+            f"Next runs: {_next_run_str(sched)}\n"
             f"Target: Saved Messages (`me`)\n"
-            f"PM log: {digest_sql.pm_log_count()} entries",
+            f"Now (Addis): `{addis_now().strftime('%H:%M')}`",
         )
 
     if parts and parts[0] == "time":
-        if len(parts) < 3:
+        # .digest time 8 0  OR  .digest time night 20 0  OR  .digest time morning 8 0
+        rest = parts[1:]
+        which = "morning"
+        if rest and rest[0].lower() in ("night", "evening", "morning"):
+            which = "night" if rest[0].lower() in ("night", "evening") else "morning"
+            rest = rest[1:]
+        if len(rest) < 2:
             return await edit_delete(
                 event,
-                "**Usage:** `.digest time <hour> <minute>`\n"
-                "**Example:** `.digest time 8 0` (8:00 AM Addis)",
+                "**Usage:**\n"
+                "`.digest time 8 0` — morning hour & minute\n"
+                "`.digest time night 20 0` — night hour & minute",
             )
         try:
-            hour = max(0, min(int(parts[1]), 23))
-            minute = max(0, min(int(parts[2]), 59))
+            hour = max(0, min(int(rest[0]), 23))
+            minute = max(0, min(int(rest[1]), 59))
         except ValueError:
             return await edit_delete(event, "**Hour and minute must be numbers.**")
-        addgvar("DIGEST_HOUR", str(hour))
         addgvar("DIGEST_MINUTE", str(minute))
+        if which == "night":
+            addgvar("DIGEST_EVENING_HOUR", str(hour))
+        else:
+            addgvar("DIGEST_HOUR", str(hour))
         sched = _ensure_scheduler()
-        _reschedule_digest_job(sched)
+        _reschedule_digest_jobs(sched)
         if _digest_auto() and not sched.running:
             sched.start()
-        job = sched.get_job("daily_digest")
-        nxt = job.next_run_time.strftime("%Y-%m-%d %H:%M %Z") if job and job.next_run_time else "—"
         return await edit_delete(
             event,
-            f"**Digest schedule set:** `{hour:02d}:{minute:02d}` Addis Ababa\n"
-            f"Next run: {nxt}",
-            8,
+            f"**Digest {which} set:** `{hour:02d}:{minute:02d}` Addis\n"
+            f"Full schedule: `{_schedule_time_label()}`\n"
+            f"Next: {_next_run_str(sched)}",
+            10,
         )
 
+    period = resolve_period()
     if parts and parts[0] == "here":
         catevent = await edit_or_reply(event, "**Building briefing...**")
-        await send_digest(event.client, event.chat_id)
+        await send_digest(event.client, event.chat_id, period=period)
         return await catevent.delete()
 
     # Default and explicit "me" → Saved Messages
     catevent = await edit_or_reply(event, "**Building briefing...**")
-    await send_digest(event.client, "me")
+    await send_digest(event.client, "me", period=period)
     await catevent.delete()
 
 
 @catub.on(events.NewMessage(incoming=True))
 async def digest_pm_logger(event):
-    """Log PMs while owner is AFK for digest."""
+    """Optional AFK supplemental log (primary inbox uses live unread scan)."""
     if not event.is_private:
         return
     try:

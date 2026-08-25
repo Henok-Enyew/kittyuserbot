@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from telethon import Button, types
+from telethon.errors.rpcerrorlist import QueryIdInvalidError
 from telethon.events import CallbackQuery, InlineQuery
 
 from userbot import catub
@@ -472,7 +473,12 @@ async def inline_handler(event):
             await event.answer(result or None)
         elif str_y[0].lower() == "ytdl" and len(str_y) == 2:
             result = await youtube_data_article(event, str_y)
-            await event.answer([result] if result else None)
+            try:
+                await event.answer([result] if result else None)
+            except QueryIdInvalidError:
+                LOGS.warning(
+                    "Inline ytdl query expired before answer (search too slow)"
+                )
         elif string == "age_verification_alert":
             result = await age_verification_article(event)
             await event.answer([result] if result else None)
