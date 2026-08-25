@@ -301,8 +301,8 @@ async def upstream(event):
             event,
             f"I guess you are on selfhost. For self host you need to use `{cmdhd}update now`",
         )
-    event = await edit_or_reply(event, "`Pulling the nekopack repo wait a sec ....`")
-    off_repo = "https://github.com/TgCatUB/nekopack"
+    event = await edit_or_reply(event, "`Pulling the kittyuserbot repo wait a sec ....`")
+    off_repo = "https://github.com/Henok-Enyew/kittyuserbot"
     os.chdir("/app")
     try:
         txt = (

@@ -1,8 +1,11 @@
 # Daily personal briefing — morning & night digests
 
 import contextlib
+from io import BytesIO
 
+import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from PIL import Image
 from telethon import events
 from telethon.tl.types import User
 
@@ -91,36 +94,85 @@ async def _optional_football_line():
         return None
 
 
+# Telegram photo caption hard limit
+_CAPTION_LIMIT = 1024
+
+
+def _fit_caption(text: str, limit: int = _CAPTION_LIMIT) -> str:
+    """Fit digest into one photo caption without breaking mid-word when possible."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    # Prefer breaking on a newline so markdown stays cleaner
+    nl = cut.rfind("\n")
+    if nl >= limit // 2:
+        cut = cut[:nl]
+    return cut.rstrip() + "…"
+
+
+def _download_digest_jpeg(image_url: str) -> BytesIO | None:
+    """
+    Download greeting image and re-encode as JPEG so Telegram treats it as a
+    photo (with caption), not a sticker/document.
+    """
+    try:
+        resp = requests.get(
+            image_url,
+            timeout=25,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        resp.raise_for_status()
+        img = Image.open(BytesIO(resp.content)).convert("RGB")
+        # Keep digest images reasonably sized for mobile
+        img.thumbnail((1280, 1280), getattr(Image, "Resampling", Image).LANCZOS)
+        out = BytesIO()
+        img.save(out, format="JPEG", quality=85, optimize=True)
+        out.name = "digest.jpg"
+        out.seek(0)
+        return out
+    except Exception as e:
+        LOGS.warning(f"digest image download/convert failed: {e}")
+        return None
+
+
 async def send_digest(client, chat_id=None, period: str | None = None):
-    """Build and deliver digest to Saved Messages (or chat_id) with greeting photo."""
+    """Build and deliver digest as one message (JPEG photo + caption)."""
     chat = chat_id or _digest_target()
     period = resolve_period(period)
 
     inbox = await collect_unread_inbox(client)
     football = await _optional_football_line()
-    text, greeting, image_url = await build_digest_text(
+    text, _greeting, image_url = await build_digest_text(
         inbox=inbox,
         ai_football_line=football,
         period=period,
         github_cache=_github_cache,
     )
 
-    # Photo with short greeting caption, then full digest body
-    with contextlib.suppress(Exception):
-        await client.send_file(
-            chat,
-            image_url,
-            caption=greeting,
-            parse_mode="md",
-            link_preview=False,
-        )
+    caption = _fit_caption(text)
+    sent = False
+    photo = _download_digest_jpeg(image_url)
+    if photo is not None:
+        try:
+            await client.send_file(
+                chat,
+                photo,
+                caption=caption,
+                parse_mode="md",
+                force_document=False,
+                allow_cache=False,
+            )
+            sent = True
+        except Exception as e:
+            LOGS.warning(f"digest photo send failed: {e}")
 
-    # Split if over Telegram limit
-    if len(text) <= 4000:
-        await client.send_message(chat, text, parse_mode="md", link_preview=False)
-    else:
-        await client.send_message(chat, text[:3900] + "\n…", parse_mode="md")
-        await client.send_message(chat, text[3900:7800], parse_mode="md")
+    # Fallback: text-only if photo download/send failed
+    if not sent:
+        if len(text) <= 4000:
+            await client.send_message(chat, text, parse_mode="md", link_preview=False)
+        else:
+            await client.send_message(chat, text[:3900] + "\n…", parse_mode="md")
+            await client.send_message(chat, text[3900:7800], parse_mode="md")
 
     # Clear AFK ring buffer if anything was logged (legacy supplemental)
     with contextlib.suppress(Exception):
@@ -196,8 +248,8 @@ def _next_run_str(sched) -> str:
     info={
         "header": "Morning & night personal briefing",
         "description": (
-            "Delivers to Saved Messages by default with weather (°C), unread DMs, "
-            "group mentions, greeting, and a morning/night photo. "
+            "Delivers to Saved Messages by default as one message (photo + digest caption) "
+            "with weather (°C), unread DMs, group mentions, and greeting. "
             "Auto runs twice daily (Addis Ababa)."
         ),
         "usage": [

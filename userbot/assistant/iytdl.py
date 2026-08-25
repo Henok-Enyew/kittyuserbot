@@ -76,6 +76,20 @@ async def iytdl_inline(event):
     if not input_url:
         return await edit_delete(event, "Give input or reply to a valid youtube URL")
     catevent = await edit_or_reply(event, f"🔎 Searching Youtube for: `'{input_url}'`")
+
+    # Prefer a concrete video id/url so the inline bot can answer fast
+    from ..helpers.functions.utube import get_yt_video_id, videos_search
+
+    video_id = get_yt_video_id(input_url)
+    if not video_id:
+        try:
+            hits = (await videos_search(input_url, limit=1)).get("result") or []
+            if hits and hits[0].get("id"):
+                video_id = hits[0]["id"]
+                input_url = f"https://www.youtube.com/watch?v={video_id}"
+        except Exception:
+            pass
+
     flag = True
     cout = 0
     results = None

@@ -485,12 +485,20 @@ async def yt_data(cat):
 
 
 async def get_ytthumb(videoid: str):
+    # Fast path for inline answers — probing every quality times out Telegram.
+    if not videoid:
+        return "https://i.imgur.com/4LwPLai.png"
+    return f"https://i.ytimg.com/vi/{videoid}/hqdefault.jpg"
+
+
+async def get_ytthumb_best(videoid: str):
+    """Probe thumbnail qualities (slower — use outside inline query window)."""
     thumb_quality = [
-        "maxresdefault.jpg",  # Best quality
+        "maxresdefault.jpg",
         "hqdefault.jpg",
         "sddefault.jpg",
         "mqdefault.jpg",
-        "default.jpg",  # Worst quality
+        "default.jpg",
     ]
     thumb_link = "https://i.imgur.com/4LwPLai.png"
     for qualiy in thumb_quality:
@@ -535,25 +543,31 @@ async def result_formatter(results: list):
     output = {}
     for index, r in enumerate(results, start=1):
         v_deo_id = r.get("id")
+        if not v_deo_id:
+            continue
         thumb = await get_ytthumb(v_deo_id)
-        upld = r.get("channel")
+        upld = r.get("channel") or {}
+        access = r.get("accessibility") or {}
+        views = r.get("viewCount") or {}
         title = f'<a href={r.get("link")}><b>{r.get("title")}</b></a>\n'
         out = title
         if r.get("descriptionSnippet"):
-            out += f'<code>{"".join(x.get("text") for x in r.get("descriptionSnippet"))}</code>\n\n'
-        out += f'<b>❯  Duration:</b> {r.get("accessibility").get("duration")}\n'
-        views = f'<b>❯  Views:</b> {r.get("viewCount").get("short")}\n'
-        out += views
-        out += f'<b>❯  Upload date:</b> {r.get("publishedTime")}\n'
+            out += f'<code>{"".join(x.get("text") or "" for x in r.get("descriptionSnippet"))}</code>\n\n'
+        out += f'<b>❯  Duration:</b> {access.get("duration") or r.get("duration") or "N/A"}\n'
+        out += f'<b>❯  Views:</b> {views.get("short") or "N/A"}\n'
+        out += f'<b>❯  Upload date:</b> {r.get("publishedTime") or "Unknown"}\n'
         if upld:
             out += "<b>❯  Uploader:</b> "
-            out += f'<a href={upld.get("link")}>{upld.get("name")}</a>'
+            out += f'<a href={upld.get("link") or "#"}>{upld.get("name") or "Unknown"}</a>'
 
         output[index] = dict(
             message=out,
             thumb=thumb,
             video_id=v_deo_id,
-            list_view=f'<img src={thumb}><b><a href={r.get("link")}>{index}. {r.get("accessibility").get("title")}</a></b><br>',
+            list_view=(
+                f'<img src={thumb}><b><a href={r.get("link")}>{index}. '
+                f'{access.get("title") or r.get("title")}</a></b><br>'
+            ),
         )
 
     return output
@@ -589,15 +603,38 @@ def yt_search_btns(
     return buttons
 
 
+def _fast_download_buttons(vid: str):
+    """Best-effort buttons without yt-dlp extract (keeps inline answers fast)."""
+    return [
+        [
+            Button.inline("⭐️ BEST - 📹 MKV", data=f"ytdl_download_{vid}_mkv_v"),
+            Button.inline(
+                "⭐️ BEST - 📹 WebM/MP4",
+                data=f"ytdl_download_{vid}_mp4_v",
+            ),
+        ],
+        [Button.inline("⭐️ BEST - 🎵 320Kbps - MP3", data=f"ytdl_download_{vid}_mp3_a")],
+    ]
+
+
 @pool.run_in_thread
 def download_button(vid: str, body: bool = False):  # sourcery no-metrics
     # sourcery skip: low-code-quality
     try:
-        vid_data = yt_dlp.YoutubeDL({"no-playlist": True}).extract_info(
-            BASE_YT_URL + vid, download=False
-        )
-    except ExtractorError:
-        vid_data = {"formats": []}
+        vid_data = yt_dlp.YoutubeDL(
+            {
+                "no-playlist": True,
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 15,
+                "retries": 1,
+                "extractor_args": {
+                    "youtube": {"player_client": ["android", "mweb"]}
+                },
+            }
+        ).extract_info(BASE_YT_URL + vid, download=False)
+    except Exception:
+        vid_data = {"formats": [], "webpage_url": BASE_YT_URL + vid, "title": vid}
     buttons = [
         [
             Button.inline("⭐️ BEST - 📹 MKV", data=f"ytdl_download_{vid}_mkv_v"),
@@ -612,7 +649,7 @@ def download_button(vid: str, body: bool = False):  # sourcery no-metrics
     qual_list = ["144p", "240p", "360p", "480p", "720p", "1080p", "1440p"]
     audio_dict = {}
     # ------------------------------------------------ #
-    for video in vid_data["formats"]:
+    for video in vid_data.get("formats") or []:
         if video.get("filesize"):
             fr_note = video.get("format_note")
             fr_id = int(video.get("format_id"))
@@ -652,7 +689,9 @@ def download_button(vid: str, body: bool = False):  # sourcery no-metrics
         width=2,
     )
     if body:
-        vid_body = f"<a href={vid_data.get('webpage_url')}><b>[{vid_data.get('title')}]</b></a>"
+        title = vid_data.get("title") or vid
+        url = vid_data.get("webpage_url") or (BASE_YT_URL + vid)
+        vid_body = f"<a href={url}><b>[{title}]</b></a>"
         return vid_body, buttons
     return buttons
 

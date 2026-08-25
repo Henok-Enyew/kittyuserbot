@@ -41,7 +41,7 @@ class check_owner:
             else:
                 HELP_TEXT = (
                     gvarstatus("HELP_TEXT")
-                    or "Only My Master can Access This !!\n\nDeploy your own Catuserbot."
+                    or "Only My Master can Access This !!\n\nDeploy your own KittyUserbot:\nhttps://github.com/Henok-Enyew/kittyuserbot"
                 )
                 await c_q.answer(
                     HELP_TEXT,

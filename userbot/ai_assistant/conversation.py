@@ -188,6 +188,7 @@ You represent {self.user_name}. Be cool, funny, helpful — and human."""
         owner_notes: List[Dict[str, str]] = None,
         reply_mode: Optional[str] = None,
         summarize_mode: bool = False,
+        summarize_focus: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """
         Build the full message list for the AI provider.
@@ -302,6 +303,14 @@ Produce a concise TL;DR summary of the content Henok provided.
 - Preserve names, decisions, and action items
 - No fluff, no intro/outro
 - Max 8 bullets unless content is very long"""
+            if summarize_focus:
+                system_content += f"""
+
+FOCUS REQUEST (priority):
+Henok wants you to extract or emphasize: "{summarize_focus.strip()}"
+- Still summarize relevant context, but lead with what matches this focus
+- If the focus info is not in the text, say clearly: "Not found in the messages."
+- Keep bullet format"""
 
         messages = [{"role": "system", "content": system_content}]
 

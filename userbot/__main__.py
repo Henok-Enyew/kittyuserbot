@@ -52,7 +52,7 @@ async def startup_process():
     LOGS.info(
         f"||   Congratulation, now type {cmdhr}alive to see message if catub is live"
     )
-    LOGS.info("||   If you need assistance, head to https://t.me/catuserbot_support")
+    LOGS.info("||   If you need assistance, head to https://github.com/Henok-Enyew/kittyuserbot")
     LOGS.info(
         "============================================================================"
     )
