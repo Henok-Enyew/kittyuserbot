@@ -261,12 +261,12 @@ class CatConverter:
                     os.remove(temp_file)
 
     async def _probe_duration(self, media_path):
-        stdout, _ = await runcmd(
+        stdout, *_ = await runcmd(
             "ffprobe -v error -show_entries format=duration "
             f"-of default=noprint_wrappers=1:nokey=1 '{media_path}'"
         )
         try:
-            return float((stdout or b"").decode().strip())
+            return float((stdout or "").strip())
         except (TypeError, ValueError):
             return None
 
