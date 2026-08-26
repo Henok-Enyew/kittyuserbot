@@ -16,7 +16,6 @@ import os
 import random
 import re
 import string
-import urllib.request
 
 import cloudscraper
 import emoji as catemoji
@@ -32,6 +31,7 @@ from telethon.tl.types import (
     DocumentAttributeFilename,
     DocumentAttributeSticker,
     InputStickerSetID,
+    InputStickerSetShortName,
 )
 
 from userbot import Convert, catub
@@ -117,6 +117,20 @@ async def delpack(catevent, conv, args, packname):
     await conv.send_message("Yes, I am totally sure.")
     await conv.get_response()
     await args.client.send_read_acknowledge(conv.chat_id)
+
+
+async def sticker_pack_exists(client, short_name: str) -> bool:
+    """Check pack via Telegram API — avoids brittle t.me HTTP/SSL scrapes."""
+    try:
+        await client(
+            GetStickerSetRequest(
+                stickerset=InputStickerSetShortName(short_name=short_name),
+                hash=0,
+            )
+        )
+        return True
+    except Exception:
+        return False
 
 
 async def resize_photo(photo):
@@ -409,14 +423,8 @@ async def kang(args):  # sourcery no-metrics  # sourcery skip: low-code-quality
             image = await resize_photo(photo)
             stfile.name = "sticker.png"
             image.save(stfile, "PNG")
-        response = urllib.request.urlopen(
-            urllib.request.Request(f"http://t.me/addstickers/{packname}")
-        )
-        htmlstr = response.read().decode("utf8").split("\n")
-        if (
-            "  A <strong>Telegram</strong> user has created the <strong>Sticker&nbsp;Set</strong>."
-            not in htmlstr
-        ):
+        # Pack missing → try add (falls back to new); pack exists → brew new/next
+        if not await sticker_pack_exists(args.client, packname):
             async with args.client.conversation("@Stickers") as conv:
                 otherpack, packname, emoji = await add_to_pack(
                     catevent,
@@ -611,14 +619,7 @@ async def pack_kang(event):  # sourcery no-metrics
                 image = await resize_photo(photo)
                 stfile.name = "sticker.png"
                 image.save(stfile, "PNG")
-            response = urllib.request.urlopen(
-                urllib.request.Request(f"http://t.me/addstickers/{packname}")
-            )
-            htmlstr = response.read().decode("utf8").split("\n")
-            if (
-                "  A <strong>Telegram</strong> user has created the <strong>Sticker&nbsp;Set</strong>."
-                in htmlstr
-            ):
+            if await sticker_pack_exists(event.client, packname):
                 async with event.client.conversation("@Stickers") as conv:
                     pack, catpackname = await newpacksticker(
                         catevent,
@@ -693,14 +694,8 @@ async def pussycat(event):
     )
     await edit_or_reply(sticker[0], f"`{random.choice(KANGING_STR)}`")
     packname = f"Cat_{userid}_temp_pack"
-    response = urllib.request.urlopen(
-        urllib.request.Request(f"http://t.me/addstickers/{packname}")
-    )
-    htmlstr = response.read().decode("utf8").split("\n")
-    if (
-        "  A <strong>Telegram</strong> user has created the <strong>Sticker&nbsp;Set</strong>."
-        not in htmlstr
-    ):
+    # Wipe temp pack if it already exists so /newvideo can reuse the name
+    if await sticker_pack_exists(event.client, packname):
         async with event.client.conversation("@Stickers") as xconv:
             await delpack(
                 sticker[0],

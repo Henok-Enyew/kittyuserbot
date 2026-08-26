@@ -4,6 +4,7 @@ cinemagoer
 cloudscraper
 colour
 cowpy
+duckduckgo-search
 emoji==1.7.0
 fonttools
 geopy
