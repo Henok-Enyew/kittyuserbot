@@ -111,6 +111,10 @@ class Config(object):
     GENIUS_API_TOKEN = os.environ.get("GENIUS_API_TOKEN", None)
     # Get your own API key from https://www.remove.bg/
     REM_BG_API_KEY = os.environ.get("REM_BG_API_KEY", None)
+    # Pexels API for .img stock photos — https://www.pexels.com/api/
+    PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", None)
+    # Unsplash Access Key for .img fill — https://unsplash.com/developers
+    UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", None)
     # Get this value from https://free.currencyconverterapi.com/
     CURRENCY_API = os.environ.get("CURRENCY_API", None)
     # Google Drive plugin https://graph.org/G-Drive-guide-for-catuserbot-01-01
