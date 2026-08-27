@@ -1,4 +1,7 @@
 # Multi-day weather — Open-Meteo (no key) + OpenWeatherMap forecast.
+#
+# Commands: .meteo / .wmeteo (no key), .owf / .wowf (OPEN_WEATHER_MAP_APPID)
+# Help text: build_meteo_help(), build_meteoset_help() — used by plugins/weatherforecast.py
 from __future__ import annotations
 
 import os
@@ -564,3 +567,128 @@ async def run_weather_query(provider: str, query: WeatherQuery) -> str:
     else:
         daily = daily[: query.days]
     return format_daily_report(loc, daily, "OpenWeatherMap", query.imperial)
+
+
+# ─── .help text builders (each call returns a fresh dict for cat_cmd info=) ───
+
+
+def build_meteo_help(provider: str = "openmeteo", **overrides) -> dict:
+    """Structured help for .meteo / .owf and aliases."""
+    modes = {
+        "(default)": "Multi-day forecast — N days for default or given city",
+        "today": "Today only — optional city after today",
+        "tomorrow": "Tomorrow only — optional city after tomorrow",
+        "hourly": "Hourly strip — hourly 24 [city] (1–48 hours)",
+    }
+    options = {
+        "<n>": "Day count before city name — 1–16 (Open-Meteo), ~5 on OWM free tier",
+        "<city>": "Any city name; geocoded automatically",
+        "imperial / f": "Trailing flag for °F and mph instead of °C and km/h",
+    }
+
+    if provider == "owm":
+        info = {
+            "header": "Weather forecast via OpenWeatherMap",
+            "description": (
+                "Multi-day, today, tomorrow, and hourly forecasts from OpenWeatherMap 2.5 "
+                "forecast API. Same syntax as {tr}meteo but uses your OPEN_WEATHER_MAP_APPID."
+            ),
+            "flags": modes,
+            "options": options,
+            "usage": [
+                "{tr}owf",
+                "{tr}owf 5 London",
+                "{tr}owf today",
+                "{tr}owf tomorrow Paris",
+                "{tr}owf hourly 24",
+                "{tr}owf 7 NYC imperial",
+            ],
+            "examples": [
+                "{tr}wowf 5",
+                "{tr}owf today Addis Ababa",
+                "{tr}owf hourly 12 Delhi",
+                "{tr}owf 3 Berlin imperial",
+            ],
+            "api keys": {
+                "OPEN_WEATHER_MAP_APPID": (
+                    "Required — same key as {tr}climate. Get from openweathermap.org/api_keys. "
+                    "Do not set twice in Config (later None overwrites the real key)."
+                ),
+            },
+            "providers": {
+                "owf / wowf": "OpenWeatherMap — needs APPID",
+                "meteo / wmeteo": "Open-Meteo — free, no key",
+                "climate": "OWM current weather (same APPID)",
+                "weather / wttr": "wttr.in — no key",
+            },
+            "note": (
+                "Default city: {tr}setcity (DEFCITY gvar), else Delhi. "
+                "Configure defaults with {tr}meteoset. Alias: {tr}wowf."
+            ),
+        }
+    else:
+        info = {
+            "header": "Multi-day weather forecast (Open-Meteo)",
+            "description": (
+                "Free forecasts with no API key — geocoding + daily/hourly data from Open-Meteo. "
+                "Supports today, tomorrow, custom day count, hourly strip, and imperial units."
+            ),
+            "flags": modes,
+            "options": options,
+            "usage": [
+                "{tr}meteo",
+                "{tr}meteo 7 London",
+                "{tr}meteo today",
+                "{tr}meteo tomorrow Paris",
+                "{tr}meteo hourly 24",
+                "{tr}meteo 5 Addis Ababa imperial",
+            ],
+            "examples": [
+                "{tr}wmeteo 7",
+                "{tr}meteo today Delhi",
+                "{tr}meteo tomorrow Berlin",
+                "{tr}meteo hourly 24 NYC",
+                "{tr}meteo 5 Tokyo imperial",
+            ],
+            "api keys": {
+                "(none)": "Open-Meteo needs no signup or key",
+                "METEO_DEFAULT_DAYS": "Optional env — default day count (default 7)",
+            },
+            "providers": {
+                "meteo / wmeteo": "Open-Meteo — this command, no key",
+                "owf / wowf": "OpenWeatherMap — needs OPEN_WEATHER_MAP_APPID",
+            },
+            "note": (
+                "Default city: {tr}setcity (DEFCITY), else Delhi. Gvars METEO_DAYS, METEO_UNITS "
+                "via {tr}meteoset. Up to 16 days on Open-Meteo. Alias: {tr}wmeteo."
+            ),
+        }
+
+    info.update(overrides)
+    return info
+
+
+def build_meteoset_help() -> dict:
+    return {
+        "header": "Weather forecast defaults (gvars)",
+        "description": (
+            "Set your default forecast length and units for {tr}meteo and {tr}owf "
+            "when you run them without explicit day count or imperial flag."
+        ),
+        "options": {
+            "days <n>": "Default forecast days (1–16 for meteo)",
+            "units imperial": "Default to °F / mph",
+            "units metric": "Default to °C / km/h",
+        },
+        "usage": [
+            "{tr}meteoset",
+            "{tr}meteoset days 7",
+            "{tr}meteoset units imperial",
+            "{tr}meteoset units metric",
+        ],
+        "examples": [
+            "{tr}meteoset days 5",
+            "{tr}meteoset units imperial",
+        ],
+        "note": "Gvars: METEO_DAYS, METEO_UNITS. Env fallback: METEO_DEFAULT_DAYS=7.",
+    }

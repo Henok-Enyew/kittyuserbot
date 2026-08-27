@@ -1,34 +1,14 @@
 # Football scores — API-Football + football-data.org
-from ..helpers.functions.football_api import parse_football_args, run_football_query
+from ..helpers.functions.football_api import (
+    build_fball_help,
+    build_fballset_help,
+    parse_football_args,
+    run_football_query,
+)
 from ..sql_helper.globals import addgvar, gvarstatus
 from . import catub, edit_delete, edit_or_reply
 
 plugin_category = "extra"
-
-_FBALL_HELP = {
-    "header": "Football scores & fixtures",
-    "description": (
-        "Live scores, today, upcoming/past fixtures, team view, and league filter. "
-        "`.fball`/`.afball` use API-Football; `.fdata`/`.ffdata` use football-data.org."
-    ),
-    "usage": [
-        "{tr}fball live",
-        "{tr}fball today",
-        "{tr}fball up 7",
-        "{tr}fball past 5",
-        "{tr}fball team Arsenal 2024",
-        "{tr}fball league PL",
-    ],
-    "examples": [
-        "{tr}afball live",
-        "{tr}ffdata up 5",
-        "{tr}fdata team Real Madrid",
-    ],
-    "note": (
-        "Requires API_FOOTBALL_KEY (.fball) or FOOTBALL_DATA_API_KEY (.fdata). "
-        "Defaults: gvars FBALL_UP_DAYS, FBALL_PAST_DAYS, FBALL_LEAGUE — set via {tr}fballset."
-    ),
-}
 
 
 def _gvars() -> dict:
@@ -55,7 +35,7 @@ async def _football_handler(event, provider: str):
 @catub.cat_cmd(
     pattern=r"fball(?:\s|$)([\s\S]*)",
     command=("fball", plugin_category),
-    info=_FBALL_HELP,
+    info=build_fball_help("apisports"),
 )
 async def fball_cmd(event):
     """API-Football scores (.fball)."""
@@ -65,7 +45,11 @@ async def fball_cmd(event):
 @catub.cat_cmd(
     pattern=r"afball(?:\s|$)([\s\S]*)",
     command=("afball", plugin_category),
-    info={**_FBALL_HELP, "header": "Alias of fball (API-Football)"},
+    info=build_fball_help(
+        "apisports",
+        header="Alias of fball (API-Football)",
+        note="Same as {tr}fball — uses API_FOOTBALL_KEY. See {tr}help fball for full guide.",
+    ),
 )
 async def afball_cmd(event):
     """Alias of .fball."""
@@ -75,11 +59,7 @@ async def afball_cmd(event):
 @catub.cat_cmd(
     pattern=r"fdata(?:\s|$)([\s\S]*)",
     command=("fdata", plugin_category),
-    info={
-        **_FBALL_HELP,
-        "header": "Football scores via football-data.org",
-        "note": "Requires FOOTBALL_DATA_API_KEY. Free tier: top competitions only.",
-    },
+    info=build_fball_help("fdata"),
 )
 async def fdata_cmd(event):
     """football-data.org scores (.fdata)."""
@@ -89,7 +69,11 @@ async def fdata_cmd(event):
 @catub.cat_cmd(
     pattern=r"ffdata(?:\s|$)([\s\S]*)",
     command=("ffdata", plugin_category),
-    info={**_FBALL_HELP, "header": "Alias of fdata (football-data.org)"},
+    info=build_fball_help(
+        "fdata",
+        header="Alias of fdata (football-data.org)",
+        note="Same as {tr}fdata — uses FOOTBALL_DATA_API_KEY. See {tr}help fdata for full guide.",
+    ),
 )
 async def ffdata_cmd(event):
     """Alias of .fdata."""
@@ -99,15 +83,7 @@ async def ffdata_cmd(event):
 @catub.cat_cmd(
     pattern=r"fballset(?:\s|$)([\s\S]*)",
     command=("fballset", plugin_category),
-    info={
-        "header": "Set football plugin defaults (gvars)",
-        "usage": [
-            "{tr}fballset up 7",
-            "{tr}fballset past 5",
-            "{tr}fballset league PL",
-        ],
-        "examples": "{tr}fballset league UCL",
-    },
+    info=build_fballset_help(),
 )
 async def fballset(event):
     """Configure football defaults."""

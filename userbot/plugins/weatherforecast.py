@@ -1,32 +1,16 @@
 # Multi-day weather — Open-Meteo + OpenWeatherMap
 import re
 
-from ..helpers.functions.weather_forecast import parse_weather_args, run_weather_query
+from ..helpers.functions.weather_forecast import (
+    build_meteo_help,
+    build_meteoset_help,
+    parse_weather_args,
+    run_weather_query,
+)
 from ..sql_helper.globals import addgvar, gvarstatus
 from . import catub, edit_delete, edit_or_reply
 
 plugin_category = "utils"
-
-_METEO_HELP = {
-    "header": "Multi-day weather forecast (Open-Meteo, no API key)",
-    "description": (
-        "Today, tomorrow, customizable daily forecast, and hourly strip. "
-        "`.meteo`/`.wmeteo` use Open-Meteo; `.owf`/`.wowf` use OpenWeatherMap."
-    ),
-    "usage": [
-        "{tr}meteo",
-        "{tr}meteo 7 London",
-        "{tr}meteo today",
-        "{tr}meteo tomorrow Paris",
-        "{tr}meteo hourly 24",
-        "{tr}meteo 5 Addis Ababa imperial",
-    ],
-    "examples": [
-        "{tr}wmeteo 5",
-        "{tr}meteo today",
-    ],
-    "note": "Default city from {tr}setcity (DEFCITY). Configure via {tr}meteoset.",
-}
 
 
 def _weather_gvars() -> dict:
@@ -79,7 +63,7 @@ async def _weather_handler(event, provider: str):
 @catub.cat_cmd(
     pattern=r"meteo(?:\s|$)([\s\S]*)",
     command=("meteo", plugin_category),
-    info=_METEO_HELP,
+    info=build_meteo_help("openmeteo"),
 )
 async def meteo_cmd(event):
     """Open-Meteo forecast (.meteo)."""
@@ -89,7 +73,11 @@ async def meteo_cmd(event):
 @catub.cat_cmd(
     pattern=r"wmeteo(?:\s|$)([\s\S]*)",
     command=("wmeteo", plugin_category),
-    info={**_METEO_HELP, "header": "Alias of meteo (Open-Meteo)"},
+    info=build_meteo_help(
+        "openmeteo",
+        header="Alias of meteo (Open-Meteo)",
+        note="Same as {tr}meteo — no API key. See {tr}help meteo for full guide.",
+    ),
 )
 async def wmeteo_cmd(event):
     """Alias of .meteo."""
@@ -99,11 +87,7 @@ async def wmeteo_cmd(event):
 @catub.cat_cmd(
     pattern=r"owf(?:\s|$)([\s\S]*)",
     command=("owf", plugin_category),
-    info={
-        **_METEO_HELP,
-        "header": "Weather forecast via OpenWeatherMap",
-        "note": "Requires OPEN_WEATHER_MAP_APPID (same as {tr}climate).",
-    },
+    info=build_meteo_help("owm"),
 )
 async def owf_cmd(event):
     """OpenWeatherMap forecast (.owf)."""
@@ -113,7 +97,11 @@ async def owf_cmd(event):
 @catub.cat_cmd(
     pattern=r"wowf(?:\s|$)([\s\S]*)",
     command=("wowf", plugin_category),
-    info={**_METEO_HELP, "header": "Alias of owf (OpenWeatherMap)"},
+    info=build_meteo_help(
+        "owm",
+        header="Alias of owf (OpenWeatherMap)",
+        note="Same as {tr}owf — needs OPEN_WEATHER_MAP_APPID. See {tr}help owf for full guide.",
+    ),
 )
 async def wowf_cmd(event):
     """Alias of .owf."""
@@ -123,14 +111,7 @@ async def wowf_cmd(event):
 @catub.cat_cmd(
     pattern=r"meteoset(?:\s|$)([\s\S]*)",
     command=("meteoset", plugin_category),
-    info={
-        "header": "Set weather forecast defaults",
-        "usage": [
-            "{tr}meteoset days 7",
-            "{tr}meteoset units imperial",
-            "{tr}meteoset units metric",
-        ],
-    },
+    info=build_meteoset_help(),
 )
 async def meteoset(event):
     """Configure meteo defaults."""

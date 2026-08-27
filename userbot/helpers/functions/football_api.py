@@ -1,4 +1,7 @@
 # Football data helpers — API-Football (api-sports) + football-data.org v4.
+#
+# Commands: .fball / .afball (API_FOOTBALL_KEY), .fdata / .ffdata (FOOTBALL_DATA_API_KEY)
+# Help text: build_fball_help(), build_fballset_help() — used by plugins/football.py for .help
 from __future__ import annotations
 
 import os
@@ -738,3 +741,137 @@ async def run_football_query(provider: str, query: FootballQuery) -> str:
             matches, f"League {query.league} (football-data.org)", tz
         )
     raise ValueError(f"Unknown mode: {query.mode}")
+
+
+# ─── .help text builders (each call returns a fresh dict for cat_cmd info=) ───
+
+
+def build_fball_help(provider: str = "apisports", **overrides) -> dict:
+    """Structured help for .fball / .fdata and aliases. Pass a new dict per command."""
+    modes = {
+        "live": "In-play matches right now (worldwide or filtered league)",
+        "today": "Today's matches — live, finished, and scheduled",
+        "up": "Upcoming fixtures for N days (default 3, max 14)",
+        "upcoming": "Same as up",
+        "past": "Finished results for the last N days (default 3, max 30)",
+        "results": "Same as past",
+        "team": "Team card — last 5 results, next 5 fixtures, honours",
+        "league": "League window — recent + upcoming for a competition code",
+    }
+    leagues = {
+        "PL / EPL": "Premier League",
+        "UCL / CL": "UEFA Champions League",
+        "UEL / EL": "UEFA Europa League",
+        "PD / LALIGA": "La Liga",
+        "BL1": "Bundesliga",
+        "SA": "Serie A",
+        "FL1": "Ligue 1",
+        "numeric id": "API-Football league id (fball only)",
+    }
+
+    if provider == "fdata":
+        info = {
+            "header": "Football scores via football-data.org",
+            "description": (
+                "Live scores, today, upcoming/past fixtures, team view, and league filter "
+                "using the football-data.org v4 API. Free tier covers top European competitions."
+            ),
+            "flags": modes,
+            "types": list(leagues.keys()),
+            "usage": [
+                "{tr}fdata live",
+                "{tr}fdata today",
+                "{tr}fdata up 7",
+                "{tr}fdata past 5",
+                "{tr}fdata team Arsenal",
+                "{tr}fdata team Real Madrid",
+                "{tr}fdata league PL",
+                "{tr}fdata league UCL",
+            ],
+            "examples": [
+                "{tr}ffdata live",
+                "{tr}fdata up 5",
+                "{tr}fdata past 3",
+                "{tr}fdata team Chelsea",
+                "{tr}fdata league PD",
+            ],
+            "api keys": {
+                "FOOTBALL_DATA_API_KEY": "Required — token from football-data.org (header X-Auth-Token)",
+            },
+            "providers": {
+                "fdata / ffdata": "football-data.org — top leagues on free tier",
+                "fball / afball": "API-Football — broader coverage + trophies (separate key)",
+            },
+            "note": (
+                "Free tier: PL, PD, BL1, SA, FL1, CL only. No trophy titles on free tier — "
+                "use {tr}fball team for honours. Defaults via gvars "
+                "(FBALL_UP_DAYS, FBALL_PAST_DAYS, FBALL_LEAGUE) — set with {tr}fballset."
+            ),
+        }
+    else:
+        info = {
+            "header": "Football scores via API-Football (api-sports)",
+            "description": (
+                "Live scores, today, upcoming/past fixtures, team honours, and league filter "
+                "using API-Sports v3.football.api-sports.io. Best coverage and team trophies."
+            ),
+            "flags": modes,
+            "types": list(leagues.keys()),
+            "usage": [
+                "{tr}fball live",
+                "{tr}fball today",
+                "{tr}fball up 7",
+                "{tr}fball past 5",
+                "{tr}fball team Arsenal",
+                "{tr}fball team Real Madrid 2024",
+                "{tr}fball league PL",
+                "{tr}fball league UCL",
+            ],
+            "examples": [
+                "{tr}afball live",
+                "{tr}fball up 7",
+                "{tr}fball past 5",
+                "{tr}fball team Liverpool 2023",
+                "{tr}fball league SA",
+            ],
+            "api keys": {
+                "API_FOOTBALL_KEY": "Required — key from api-football.com (header x-apisports-key)",
+            },
+            "providers": {
+                "fball / afball": "API-Football (this command)",
+                "fdata / ffdata": "football-data.org — alternate provider, separate key",
+            },
+            "note": (
+                "Optional env FBALL_DEFAULT_LEAGUE=PL. Per-user defaults: {tr}fballset up 7 | "
+                "{tr}fballset past 5 | {tr}fballset league UCL. Alias: {tr}afball."
+            ),
+        }
+
+    info.update(overrides)
+    return info
+
+
+def build_fballset_help() -> dict:
+    return {
+        "header": "Football plugin defaults (saved gvars)",
+        "description": (
+            "Stores your preferred upcoming/past day counts and default league filter "
+            "for {tr}fball and {tr}fdata when you omit day counts or league."
+        ),
+        "options": {
+            "up / upcoming <n>": "Default days for {tr}fball up (max 14)",
+            "past / results <n>": "Default days for {tr}fball past (max 30)",
+            "league <code>": "Default league filter — PL, UCL, PD, BL1, SA, FL1, etc.",
+        },
+        "usage": [
+            "{tr}fballset",
+            "{tr}fballset up 7",
+            "{tr}fballset past 5",
+            "{tr}fballset league PL",
+        ],
+        "examples": [
+            "{tr}fballset up 7",
+            "{tr}fballset league UCL",
+        ],
+        "note": "Gvars: FBALL_UP_DAYS, FBALL_PAST_DAYS, FBALL_LEAGUE.",
+    }
