@@ -22,6 +22,7 @@ from ..helpers import reply_id, unsavegif
 plugin_category = "Extra"
 
 GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
+KLIPY_SEARCH_URL = "https://api.klipy.com/api/v1/{api_key}/gifs/search"
 MAX_GIFS = 10
 
 
@@ -29,6 +30,14 @@ def _giphy_api_key() -> str | None:
     return (
         os.environ.get("GIPHY_API_KEY")
         or getattr(Config, "GIPHY_API_KEY", None)
+        or None
+    )
+
+
+def _klipy_api_key() -> str | None:
+    return (
+        os.environ.get("KLIPY_API_KEY")
+        or getattr(Config, "KLIPY_API_KEY", None)
         or None
     )
 
@@ -116,6 +125,99 @@ async def giphy_search(query: str, limit: int = 1) -> List[str]:
     return urls
 
 
+def _best_klipy_url(item: dict) -> str | None:
+    """Prefer md/hd/sm gif URLs; fall back to mp4."""
+    files = item.get("file") or item.get("files") or {}
+    if not isinstance(files, dict):
+        return None
+    for size in ("md", "hd", "sm", "xs"):
+        formats = files.get(size) or {}
+        if not isinstance(formats, dict):
+            continue
+        gif = formats.get("gif") or {}
+        url = gif.get("url") if isinstance(gif, dict) else None
+        if url:
+            return url
+    for size in ("md", "hd", "sm", "xs"):
+        formats = files.get(size) or {}
+        if not isinstance(formats, dict):
+            continue
+        mp4 = formats.get("mp4") or {}
+        url = mp4.get("url") if isinstance(mp4, dict) else None
+        if url:
+            return url
+    return None
+
+
+async def klipy_search(query: str, limit: int = 1) -> List[str]:
+    """Search Klipy and return up to `limit` GIF URLs."""
+    api_key = _klipy_api_key()
+    if not api_key:
+        raise ValueError(
+            "KLIPY_API_KEY is not set. Add it to your env / Dockerfile / HF secrets."
+        )
+
+    # Klipy per_page is documented as min 8, max 50
+    per_page = max(8, min(50, max(limit * 2, 8)))
+    url = KLIPY_SEARCH_URL.format(api_key=api_key)
+    params = {
+        "q": query,
+        "per_page": per_page,
+        "page": 1,
+        "rating": "pg-13",
+        "locale": "us_US",
+    }
+
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        r = await client.get(url, params=params)
+        try:
+            data = r.json()
+        except Exception as e:
+            raise RuntimeError(f"Klipy API invalid JSON ({r.status_code}): {e}") from e
+
+    if r.status_code != 200 or data.get("result") is False:
+        msg = (
+            (data.get("message") if isinstance(data, dict) else None)
+            or (data.get("error") if isinstance(data, dict) else None)
+            or r.text[:200]
+        )
+        raise RuntimeError(f"Klipy API error ({r.status_code}): {msg}")
+
+    payload = data.get("data") or {}
+    items = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        items = []
+
+    urls: List[str] = []
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        gif_url = _best_klipy_url(item)
+        if not gif_url or gif_url in seen:
+            continue
+        seen.add(gif_url)
+        urls.append(gif_url)
+        if len(urls) >= limit:
+            break
+    return urls
+
+
+async def _send_gif_urls(event, urls: List[str], reply_to_id, catevent):
+    await catevent.edit(f"`Sending {len(urls)} GIF(s)...`")
+    for url in urls:
+        try:
+            nood = await event.client.send_file(
+                event.chat_id,
+                url,
+                reply_to=reply_to_id,
+            )
+            await unsavegif(event, nood)
+        except Exception:
+            continue
+    await catevent.delete()
+
+
 @catub.cat_cmd(
     pattern=r"gifs(?: |$)([\s\S]*)",
     command=("gifs", plugin_category),
@@ -168,17 +270,85 @@ async def some(event):
     if not urls:
         return await edit_delete(catevent, f"`No GIFs found for` `{query}`", 6)
 
-    await catevent.edit(f"`Sending {len(urls)} GIF(s)...`")
+    await _send_gif_urls(event, urls, reply_to_id, catevent)
 
-    for url in urls:
-        try:
-            nood = await event.client.send_file(
-                event.chat_id,
-                url,
-                reply_to=reply_to_id,
-            )
-            await unsavegif(event, nood)
-        except Exception:
-            continue
 
-    await catevent.delete()
+_KLIPY_INFO = {
+    "header": "Search and send GIFs from Klipy",
+    "description": (
+        "Searches Klipy with your KLIPY_API_KEY and sends the top matching GIFs. "
+        "Default 1 GIF; up to 10. `.klipy` and `.kgifs` work the same."
+    ),
+    "usage": [
+        "{tr}klipy <query>",
+        "{tr}klipy <1-10> <query>",
+        "{tr}kgifs <query> ; <1-10>",
+    ],
+    "examples": [
+        "{tr}klipy cat",
+        "{tr}kgifs 5 cat looking weird",
+        "{tr}klipy funny dog ; 3",
+    ],
+}
+
+
+async def _klipy_cmd(event):
+    """Search Klipy and send matching GIFs."""
+    raw = event.pattern_match.group(1)
+    reply_to_id = await reply_id(event)
+    count, query = _parse_gifs_args(raw)
+
+    if not query:
+        return await edit_delete(
+            event,
+            "`Give a search query.`\n"
+            "**Examples:** `.klipy cat` | `.kgifs 5 cat looking weird`",
+        )
+
+    if not _klipy_api_key():
+        return await edit_delete(
+            event,
+            "**KLIPY_API_KEY not set.**\n"
+            "Add `KLIPY_API_KEY=your_key` to env / Dockerfile / HF secrets.\n"
+            "Get a key at https://klipy.com/developers",
+            12,
+        )
+
+    catevent = await edit_or_reply(event, f"`Searching Klipy for` `{query}`...")
+
+    try:
+        urls = await klipy_search(query, count)
+    except Exception as e:
+        return await edit_delete(catevent, f"**Klipy search failed:**\n`{e}`", 10)
+
+    if not urls:
+        return await edit_delete(catevent, f"`No GIFs found for` `{query}`", 6)
+
+    await _send_gif_urls(event, urls, reply_to_id, catevent)
+
+
+@catub.cat_cmd(
+    pattern=r"klipy(?: |$)([\s\S]*)",
+    command=("klipy", plugin_category),
+    info=_KLIPY_INFO,
+)
+async def klipy_gifs(event):
+    """Search Klipy GIFs (.klipy)."""
+    await _klipy_cmd(event)
+
+
+@catub.cat_cmd(
+    pattern=r"kgifs(?: |$)([\s\S]*)",
+    command=("kgifs", plugin_category),
+    info={
+        **_KLIPY_INFO,
+        "usage": [
+            "{tr}kgifs <query>",
+            "{tr}kgifs <1-10> <query>",
+            "{tr}kgifs <query> ; <1-10>",
+        ],
+    },
+)
+async def kgifs(event):
+    """Search Klipy GIFs (.kgifs)."""
+    await _klipy_cmd(event)
