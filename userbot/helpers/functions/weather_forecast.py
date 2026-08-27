@@ -15,7 +15,8 @@ from ...Config import Config
 
 METEO_GEO = "https://geocoding-api.open-meteo.com/v1/search"
 METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"
-OWM_GEO = "http://api.openweathermap.org/geo/1.0/direct"
+OWM_GEO = "https://api.openweathermap.org/geo/1.0/direct"
+HTTP_HEADERS = {"User-Agent": "CatUserBot/weather-forecast"}
 OWM_FORECAST = "https://api.openweathermap.org/data/2.5/forecast"
 OWM_CURRENT = "https://api.openweathermap.org/data/2.5/weather"
 
@@ -73,9 +74,29 @@ def _cache_set(key: str, value: Any, ttl: int) -> None:
 
 
 def _owm_key() -> Optional[str]:
-    return os.environ.get("OPEN_WEATHER_MAP_APPID") or getattr(
-        Config, "OPEN_WEATHER_MAP_APPID", None
-    )
+    for source in (
+        os.environ.get("OPEN_WEATHER_MAP_APPID"),
+        getattr(Config, "OPEN_WEATHER_MAP_APPID", None),
+    ):
+        if source and str(source).strip().lower() not in {"", "none", "null"}:
+            return str(source).strip()
+    return None
+
+
+def _location_today(tz_name: str) -> date:
+    try:
+        tz_name = tz_name if tz_name and tz_name != "auto" else "UTC"
+        return datetime.now(ZoneInfo(tz_name)).date()
+    except Exception:
+        return date.today()
+
+
+def _day_label(day: date, local_today: date) -> str:
+    if day == local_today:
+        return "Today"
+    if day == local_today + timedelta(days=1):
+        return "Tomorrow"
+    return day.strftime("%a")
 
 
 def _default_days(gvars: dict) -> int:
@@ -240,8 +261,10 @@ async def geocode_openmeteo(city: str) -> Location:
         return cached
 
     params = {"name": city, "count": 5, "language": "en", "format": "json"}
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with httpx.AsyncClient(timeout=20, headers=HTTP_HEADERS) as client:
         r = await client.get(METEO_GEO, params=params)
+        if r.status_code != 200:
+            raise RuntimeError(f"Open-Meteo geocoding HTTP {r.status_code}")
         data = r.json()
 
     results = data.get("results") or []
@@ -274,8 +297,10 @@ async def geocode_owm(city: str) -> Location:
         return cached
 
     params = {"q": city, "limit": 1, "appid": key}
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with httpx.AsyncClient(timeout=20, headers=HTTP_HEADERS) as client:
         r = await client.get(OWM_GEO, params=params)
+        if r.status_code != 200:
+            raise RuntimeError(f"OpenWeatherMap geocoding HTTP {r.status_code}")
         data = r.json()
 
     if not isinstance(data, list) or not data:
@@ -302,26 +327,33 @@ async def openmeteo_forecast(loc: Location, days: int) -> List[DailyForecast]:
         "latitude": loc.lat,
         "longitude": loc.lon,
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,windspeed_10m_max",
-        "forecast_days": min(days, 16),
+        "forecast_days": max(1, min(days, 16)),
         "timezone": loc.timezone or "auto",
     }
-    async with httpx.AsyncClient(timeout=25) as client:
+    async with httpx.AsyncClient(timeout=25, headers=HTTP_HEADERS) as client:
         r = await client.get(METEO_FORECAST, params=params)
+        if r.status_code != 200:
+            raise RuntimeError(f"Open-Meteo forecast HTTP {r.status_code}")
         data = r.json()
+
+    if data.get("error"):
+        raise RuntimeError(f"Open-Meteo error: {data.get('reason', data['error'])}")
 
     daily = data.get("daily") or {}
     dates = daily.get("time") or []
+    if not dates:
+        raise RuntimeError(
+            "Open-Meteo returned no daily forecast. Try again or use `.owf`."
+        )
+
     out: List[DailyForecast] = []
-    today = date.today()
+    local_today = _location_today(loc.timezone)
 
     for i, ds in enumerate(dates):
         d = date.fromisoformat(ds)
         code = int((daily.get("weathercode") or [0])[i])
-        label, emoji = wmo_label(code)
-        if d == today:
-            label = "Today"
-        elif d == today + timedelta(days=1):
-            label = "Tomorrow"
+        wmo_name, emoji = wmo_label(code)
+        label = _day_label(d, local_today)
 
         out.append(
             DailyForecast(
@@ -331,7 +363,7 @@ async def openmeteo_forecast(loc: Location, days: int) -> List[DailyForecast]:
                 temp_max=float((daily.get("temperature_2m_max") or [0])[i]),
                 precip_mm=float((daily.get("precipitation_sum") or [0])[i]),
                 wind_kmh=float((daily.get("windspeed_10m_max") or [0])[i]),
-                weather=label if label in {"Today", "Tomorrow"} else wmo_label(code)[0],
+                weather=wmo_name,
                 emoji=emoji,
             )
         )
@@ -348,8 +380,10 @@ async def openmeteo_hourly(loc: Location, hours: int) -> List[HourlyForecast]:
         "forecast_days": min(3, (hours // 24) + 1),
         "timezone": loc.timezone or "auto",
     }
-    async with httpx.AsyncClient(timeout=25) as client:
+    async with httpx.AsyncClient(timeout=25, headers=HTTP_HEADERS) as client:
         r = await client.get(METEO_FORECAST, params=params)
+        if r.status_code != 200:
+            raise RuntimeError(f"Open-Meteo hourly HTTP {r.status_code}")
         data = r.json()
 
     hourly = data.get("hourly") or {}
@@ -399,11 +433,13 @@ async def owm_forecast_daily(loc: Location, days: int) -> List[DailyForecast]:
         raise ValueError("OPEN_WEATHER_MAP_APPID is not set.")
 
     params = {"lat": loc.lat, "lon": loc.lon, "appid": key, "units": "metric"}
-    async with httpx.AsyncClient(timeout=25) as client:
+    async with httpx.AsyncClient(timeout=25, headers=HTTP_HEADERS) as client:
         r = await client.get(OWM_FORECAST, params=params)
+        if r.status_code != 200:
+            raise RuntimeError(f"OpenWeatherMap forecast HTTP {r.status_code}")
         data = r.json()
 
-    if str(data.get("cod")) != "200":
+    if str(data.get("cod")) not in {"200", "200.0"}:
         raise RuntimeError(f"OpenWeatherMap error: {data.get('message', data)}")
 
     by_day: Dict[date, dict] = {}
@@ -429,11 +465,11 @@ async def owm_forecast_daily(loc: Location, days: int) -> List[DailyForecast]:
         rain = (item.get("rain") or {}).get("3h") or 0
         by_day[d]["precip"] += float(rain)
 
-    today = date.today()
+    today = _location_today(loc.timezone or "UTC")
     out: List[DailyForecast] = []
     for d in sorted(by_day.keys())[: min(days, 8)]:
         row = by_day[d]
-        label = "Today" if d == today else "Tomorrow" if d == today + timedelta(days=1) else d.strftime("%a")
+        label = _day_label(d, today)
         emoji = _owm_weather_emoji(row["weather"])
         out.append(
             DailyForecast(
@@ -447,18 +483,24 @@ async def owm_forecast_daily(loc: Location, days: int) -> List[DailyForecast]:
                 emoji=emoji,
             )
         )
+    if not out:
+        raise RuntimeError(
+            "OpenWeatherMap returned no forecast data for this location."
+        )
     return out
-
-
-async def owm_hourly(loc: Location, hours: int) -> List[HourlyForecast]:
     key = _owm_key()
     if not key:
         raise ValueError("OPEN_WEATHER_MAP_APPID is not set.")
 
     params = {"lat": loc.lat, "lon": loc.lon, "appid": key, "units": "metric"}
-    async with httpx.AsyncClient(timeout=25) as client:
+    async with httpx.AsyncClient(timeout=25, headers=HTTP_HEADERS) as client:
         r = await client.get(OWM_FORECAST, params=params)
+        if r.status_code != 200:
+            raise RuntimeError(f"OpenWeatherMap forecast HTTP {r.status_code}")
         data = r.json()
+
+    if str(data.get("cod")) not in {"200", "200.0"}:
+        raise RuntimeError(f"OpenWeatherMap error: {data.get('message', data)}")
 
     out: List[HourlyForecast] = []
     now = datetime.now(ZoneInfo("UTC"))
@@ -483,38 +525,42 @@ async def owm_hourly(loc: Location, hours: int) -> List[HourlyForecast]:
 
 
 async def run_weather_query(provider: str, query: WeatherQuery) -> str:
-    if provider == "openmeteo":
+    if provider in {"openmeteo", "meteo"}:
         loc = await geocode_openmeteo(query.city)
+        today_local = _location_today(loc.timezone)
         if query.mode == "hourly":
             hours = await openmeteo_hourly(loc, query.hours)
             return format_hourly_report(loc, hours, "Open-Meteo", query.imperial)
         fetch_days = query.days
         if query.mode == "today":
-            fetch_days = 1
+            fetch_days = 3
         elif query.mode == "tomorrow":
-            fetch_days = 2
+            fetch_days = 3
         daily = await openmeteo_forecast(loc, fetch_days)
         if query.mode == "today":
-            daily = [d for d in daily if d.label == "Today"] or daily[:1]
+            daily = [d for d in daily if d.day == today_local] or daily[:1]
         elif query.mode == "tomorrow":
-            daily = [d for d in daily if d.label == "Tomorrow"] or daily[1:2]
+            tomorrow = today_local + timedelta(days=1)
+            daily = [d for d in daily if d.day == tomorrow] or daily[1:2]
         else:
             daily = daily[: query.days]
         return format_daily_report(loc, daily, "Open-Meteo", query.imperial)
 
-    # OpenWeatherMap
+    # OpenWeatherMap (.owf / .wowf)
     loc = await geocode_owm(query.city)
+    today_local = _location_today(loc.timezone or "UTC")
     if query.mode == "hourly":
         hours = await owm_hourly(loc, query.hours)
         return format_hourly_report(loc, hours, "OpenWeatherMap", query.imperial)
     days_n = query.days
     if query.mode in {"today", "tomorrow"}:
-        days_n = 2
+        days_n = 3
     daily = await owm_forecast_daily(loc, days_n)
     if query.mode == "today":
-        daily = daily[:1]
+        daily = [d for d in daily if d.day == today_local] or daily[:1]
     elif query.mode == "tomorrow":
-        daily = daily[1:2] if len(daily) > 1 else daily
+        tomorrow = today_local + timedelta(days=1)
+        daily = [d for d in daily if d.day == tomorrow] or daily[1:2]
     else:
         daily = daily[: query.days]
     return format_daily_report(loc, daily, "OpenWeatherMap", query.imperial)

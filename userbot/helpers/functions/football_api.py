@@ -132,13 +132,23 @@ def _today() -> date:
 
 
 def _api_football_key() -> Optional[str]:
-    return os.environ.get("API_FOOTBALL_KEY") or getattr(Config, "API_FOOTBALL_KEY", None)
+    for source in (
+        os.environ.get("API_FOOTBALL_KEY"),
+        getattr(Config, "API_FOOTBALL_KEY", None),
+    ):
+        if source and str(source).strip().lower() not in {"", "none", "null"}:
+            return str(source).strip()
+    return None
 
 
 def _fdata_key() -> Optional[str]:
-    return os.environ.get("FOOTBALL_DATA_API_KEY") or getattr(
-        Config, "FOOTBALL_DATA_API_KEY", None
-    )
+    for source in (
+        os.environ.get("FOOTBALL_DATA_API_KEY"),
+        getattr(Config, "FOOTBALL_DATA_API_KEY", None),
+    ):
+        if source and str(source).strip().lower() not in {"", "none", "null"}:
+            return str(source).strip()
+    return None
 
 
 def _current_season() -> int:
@@ -409,14 +419,14 @@ async def apisports_range(
 async def apisports_upcoming(days: int, league: str = "") -> List[MatchSnapshot]:
     start = _today()
     end = start + timedelta(days=days)
-    matches = await _apisports_range(start, end, league=league)
+    matches = await apisports_range(start, end, league=league)
     return [m for m in matches if m.is_scheduled or not m.is_finished]
 
 
 async def apisports_past(days: int, league: str = "") -> List[MatchSnapshot]:
     end = _today()
     start = end - timedelta(days=days)
-    matches = await _apisports_range(start, end, league=league)
+    matches = await apisports_range(start, end, league=league)
     return [m for m in matches if m.is_finished]
 
 
@@ -492,7 +502,7 @@ async def apisports_league_matches(league: str) -> List[MatchSnapshot]:
         )
     start = _today() - timedelta(days=3)
     end = _today() + timedelta(days=7)
-    return await _apisports_range(start, end, league=league)
+    return await apisports_range(start, end, league=league)
 
 
 # ─── football-data.org ───────────────────────────────────────────────────────

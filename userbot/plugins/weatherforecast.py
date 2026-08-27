@@ -54,6 +54,17 @@ async def _weather_handler(event, provider: str):
     if imperial_flag:
         query.imperial = True
 
+    if provider == "owm":
+        from ..helpers.functions.weather_forecast import _owm_key
+
+        if not _owm_key():
+            return await edit_delete(
+                event,
+                "**OPEN_WEATHER_MAP_APPID is not set.**\n"
+                "Add it to your Config / env (and do not overwrite it with `None` later in the same file).",
+                12,
+            )
+
     label = "Open-Meteo" if provider == "openmeteo" else "OpenWeatherMap"
     catevent = await edit_or_reply(event, f"`Fetching {label} forecast…`")
     try:
