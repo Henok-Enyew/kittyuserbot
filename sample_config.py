@@ -99,6 +99,13 @@ class Config(object):
     SCREEN_SHOT_LAYER_ACCESS_KEY = os.environ.get("SCREEN_SHOT_LAYER_ACCESS_KEY", None)
     # Get your own APPID from https://api.openweathermap.org/data/2.5/weather
     OPEN_WEATHER_MAP_APPID = os.environ.get("OPEN_WEATHER_MAP_APPID", None)
+    # API-Football (api-sports) for .fball / .afball — https://www.api-football.com/
+    API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", None)
+    # football-data.org for .fdata / .ffdata — https://www.football-data.org/
+    FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", None)
+    # Optional defaults for football / meteo plugins (overridable via gvars)
+    FBALL_DEFAULT_LEAGUE = os.environ.get("FBALL_DEFAULT_LEAGUE", None)
+    METEO_DEFAULT_DAYS = int(os.environ.get("METEO_DEFAULT_DAYS", "7"))
     # This is required for the speech to text plugin. Get your USERNAME from
     # https://console.bluemix.net/docs/services/speech-to-text/getting-started.html
     IBM_WATSON_CRED_URL = os.environ.get("IBM_WATSON_CRED_URL", None)
