@@ -3,6 +3,7 @@ apscheduler
 cinemagoer
 cloudscraper
 colour
+covid
 cowpy
 duckduckgo-search
 emoji==1.7.0
@@ -25,6 +26,7 @@ lottie
 lyricsgenius
 markdown
 motor
+nekos.py
 openai
 Pillow
 prettytable

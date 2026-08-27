@@ -8,8 +8,29 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 import io
+import os
 
 from PIL import Image, ImageDraw, ImageOps
+
+
+def convert_toimage(image, filename=None):
+    filename = filename or os.path.join("./temp/", "temp.jpg")
+    img = Image.open(image)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img.save(filename, "jpeg")
+    os.remove(image)
+    return filename
+
+
+def convert_tosticker(response, filename=None):
+    filename = filename or os.path.join("./temp/", "temp.webp")
+    image = Image.open(response)
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    image.save(filename, "webp")
+    os.remove(response)
+    return filename
 
 
 async def invert_colors(imagefile, endname):
