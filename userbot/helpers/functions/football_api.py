@@ -887,6 +887,7 @@ async def run_football_query(provider: str, query: FootballQuery) -> str:
 
 def build_fball_help(provider: str = "apisports", **overrides) -> dict:
     """Structured help for .fball / .fdata and aliases. Pass a new dict per command."""
+    import copy
     modes = {
         "live": "In-play matches right now (worldwide or filtered league)",
         "today": "Today's matches — live, finished, and scheduled",
@@ -988,11 +989,14 @@ def build_fball_help(provider: str = "apisports", **overrides) -> dict:
         }
 
     info.update(overrides)
-    return info
+    return copy.deepcopy(info)
 
 
 def build_fballset_help() -> dict:
-    return {
+    import copy
+
+    return copy.deepcopy(
+        {
         "header": "Football plugin defaults (saved gvars)",
         "description": (
             "Stores your preferred upcoming/past day counts and default league filter "
@@ -1014,4 +1018,5 @@ def build_fballset_help() -> dict:
             "{tr}fballset league UCL",
         ],
         "note": "Gvars: FBALL_UP_DAYS, FBALL_PAST_DAYS, FBALL_LEAGUE.",
-    }
+        }
+    )

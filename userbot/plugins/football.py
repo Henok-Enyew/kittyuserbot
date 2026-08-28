@@ -1,12 +1,13 @@
 # Football scores — API-Football + football-data.org
-from ..helpers.functions.football_api import (
+from userbot import catub
+from userbot.core.managers import edit_delete, edit_or_reply
+from userbot.helpers.functions.football_api import (
     build_fball_help,
     build_fballset_help,
     parse_football_args,
     run_football_query,
 )
-from ..sql_helper.globals import addgvar, gvarstatus
-from . import catub, edit_delete, edit_or_reply
+from userbot.sql_helper.globals import addgvar, gvarstatus
 
 plugin_category = "extra"
 
