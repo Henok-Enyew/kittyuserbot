@@ -24,7 +24,7 @@ plugin_category = "tools"
 
 
 @catub.cat_cmd(
-    pattern="help ?(-c|-p|-t)? ?([\s\S]*)?",
+    pattern=r"help(?!ai)(?:\s+(-c|-p|-t))?(?:\s+([\s\S]*))?$",
     command=("help", plugin_category),
     info={
         "header": "To get guide for catuserbot.",

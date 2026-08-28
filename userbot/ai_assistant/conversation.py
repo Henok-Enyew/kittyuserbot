@@ -190,7 +190,7 @@ You represent {self.user_name}. Be cool, funny, helpful — and human."""
         summarize_mode: bool = False,
         summarize_focus: Optional[str] = None,
         summarize_link_mode: bool = False,
-        helpai_mode: bool = False,
+        askme_mode: bool = False,
     ) -> List[Dict[str, str]]:
         """
         Build the full message list for the AI provider.
@@ -296,10 +296,10 @@ Henok needs reply options for a message he received. Give exactly 3 labeled opti
 3. Professional: ...
 Keep each option short — copy-paste ready. Match the vibe of the incoming message."""
 
-        if helpai_mode:
+        if askme_mode:
             system_content += """
 
-BOT HELP AI MODE:
+BOT ASKME MODE:
 Henok is asking how to use THIS Telegram userbot.
 - Answer ONLY using the COMMAND CATALOG provided in the user message
 - Recommend 1–3 exact commands with correct prefix and syntax

@@ -1,4 +1,4 @@
-# Bot command catalog for .helpai — built from live CMD_INFO / PLG_INFO / GRP_INFO.
+# Bot command catalog for .askme — built from live CMD_INFO / PLG_INFO / GRP_INFO.
 from __future__ import annotations
 
 import os
@@ -19,13 +19,14 @@ CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "bot_command_ca
 QUICK_TOPICS: Dict[str, List[str]] = {
     "gif": ["vtogif", "gif", "gifs", "klipy", "kgifs"],
     "video": ["vtogif", "gif", "circle", "spin", "split", "trim"],
-    "sticker": ["mkstcr", "makestcr", "stoi", "kang", "vas", "mtoi"],
+    "sticker": ["mkstcr", "makestcr", "stoi", "kang", "vas", "mtoi", "stcr"],
+    "background": ["mkstcr", "makestcr", "rembg", "removebg"],
     "summarize": ["sum", "summarize", "osum", "osummarize", "sumthis"],
     "weather": ["meteo", "owf", "climate", "weather"],
     "football": ["fball", "fdata", "afball"],
     "image": ["img", "dimg", "rembg", "ocr"],
-    "ai": ["ai", "helpai", "aireply", "digest"],
-    "help": ["help", "cmds", "s", "helpai"],
+    "ai": ["ai", "askme", "botask", "aireply", "digest", "ask"],
+    "help": ["help", "cmds", "s", "askme", "botask"],
     "love": [
         "love",
         "lovemorning",
@@ -150,7 +151,7 @@ def build_full_catalog(compact: bool = True) -> str:
         f"- `{p}help -c <command>` — single command help",
         f"- `{p}cmds` — all commands list",
         f"- `{p}s <keyword>` — search command names",
-        f"- `{p}helpai <question>` — ask in plain English (this assistant)",
+        f"- `{p}askme <question>` — ask in plain English (alias: `{p}botask`)",
         "",
     ]
     for cmd in sorted(CMD_INFO.keys()):
@@ -184,7 +185,7 @@ def _ensure_cache() -> None:
         refresh_catalog_store()
 
 
-def build_helpai_context(query: str) -> str:
+def build_askme_context(query: str) -> str:
     """Context block injected into the AI user message."""
     _ensure_cache()
     p = _prefix()
@@ -224,7 +225,7 @@ def build_helpai_context(query: str) -> str:
     return "\n".join(lines)
 
 
-def build_helpai_help() -> dict:
+def build_askme_help() -> dict:
     p = "{tr}"
     return {
         "header": "AI bot help — ask anything about commands in plain English",
@@ -234,19 +235,19 @@ def build_helpai_help() -> dict:
             "userbot/data/bot_command_catalog.md (auto-updated)."
         ),
         "usage": [
-            f"{p}helpai what is the cmd to convert video to gifs",
-            f"{p}helpai command to generate stickers",
-            f"{p}helpai how do I summarize another chat silently",
-            f"{p}helpai football live scores",
-            f"{p}helpai weather forecast without api key",
+            f"{p}askme sticker from image remove background",
+            f"{p}askme what is the cmd to convert video to gifs",
+            f"{p}askme command to generate stickers",
+            f"{p}botask how do I summarize another chat silently",
+            f"{p}askme football live scores",
         ],
         "examples": [
-            f"{p}helpai sticker from image remove background",
-            f"{p}helpai search gifs online",
-            f"{p}helpai last 50 messages job posts",
+            f"{p}askme search gifs online",
+            f"{p}botask weather forecast without api key",
+            f"{p}askme last 50 messages job posts",
         ],
         "note": (
-            "Requires AI provider (same as .ai). Does not run commands — only explains them. "
-            "Use .help -c <cmd> for official static help."
+            "Requires AI provider (same as .ai). Alias: .botask. Does not run commands — "
+            "only explains them. Use .help -c <cmd> for official static help."
         ),
     }
