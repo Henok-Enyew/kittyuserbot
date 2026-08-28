@@ -112,6 +112,8 @@ class Config(object):
     METEO_DEFAULT_DAYS = int(os.environ.get("METEO_DEFAULT_DAYS", "7"))
     # Cross-chat silent summarizer (.osum) — max messages per scan
     OSUM_MAX_MESSAGES = int(os.environ.get("OSUM_MAX_MESSAGES", "100"))
+    # .sum / .summarize — max messages per scan (default 150)
+    SUM_MAX_RANGE = int(os.environ.get("SUM_MAX_RANGE", "150"))
     # This is required for the speech to text plugin. Get your USERNAME from
     # https://console.bluemix.net/docs/services/speech-to-text/getting-started.html
     IBM_WATSON_CRED_URL = os.environ.get("IBM_WATSON_CRED_URL", None)

@@ -3,6 +3,7 @@
 
 import os
 import re
+from typing import Optional
 
 import requests
 from telethon.tl.types import User
@@ -17,8 +18,18 @@ from userbot.plugins.ai_assistant import get_ai_components
 
 plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
-MAX_INPUT = 6000
-MAX_RANGE = 100
+MAX_INPUT = 8000
+
+
+def _max_summarize_range() -> int:
+    try:
+        return int(
+            os.environ.get("SUM_MAX_RANGE")
+            or getattr(Config, "SUM_MAX_RANGE", None)
+            or 150
+        )
+    except (TypeError, ValueError):
+        return 150
 
 _USAGE_HINT = (
     "**Usage:**\n"
@@ -26,7 +37,8 @@ _USAGE_HINT = (
     "`.sum tell me where he told me to meet` (reply) — focused summary\n"
     "`.summarizethis` / `.sumthis` — just the replied message\n"
     "`.summarize 50` — last 50 in this chat\n"
-    "`.summarize 30 key deadlines only` — last 30 with focus"
+    "`.summarize 30 key deadlines only` — last 30 with focus\n"
+    "`.sum job roles` — last 80 messages with focus (no reply)",
 )
 
 
@@ -89,21 +101,61 @@ async def _format_messages(msgs) -> str:
         if not m or not (m.message or m.text):
             continue
         name = await _sender_name(m)
-        lines.append(f"{name}: {m.message or m.text}")
+        lines.append(f"[#{m.id}] {name}: {m.message or m.text}")
     return "\n".join(lines)
 
 
-async def _summarize_text(event, text: str, focus: str | None = None):
+def _reply_to_kw(msg) -> Optional[int]:
+    """Forum topic / thread id when summarizing inside a topic."""
+    rt = getattr(msg, "reply_to", None)
+    if not rt:
+        return None
+    return getattr(rt, "reply_to_top_id", None) or getattr(rt, "reply_to_msg_id", None)
+
+
+async def _collect_range_messages(event, min_id: int, max_id: int, anchor_msg=None):
+    """Fetch text messages in id range (chronological), up to configured cap."""
+    cap = max(1, min(_max_summarize_range(), 300))
+    kwargs: dict = {
+        "entity": event.chat_id,
+        "min_id": min_id,
+        "max_id": max_id,
+    }
+    topic = _reply_to_kw(anchor_msg) if anchor_msg else None
+    if topic:
+        kwargs["reply_to"] = topic
+
+    rows = []
+    async for m in event.client.iter_messages(limit=cap, **kwargs):
+        if m.id == event.id:
+            continue
+        if m.message or m.text:
+            rows.append(m)
+    return list(reversed(rows))
+
+
+async def _summarize_text(event, text: str, focus: str | None = None, truncated: bool = False):
+    was_truncated = truncated
     if len(text) > MAX_INPUT:
         text = text[:MAX_INPUT] + "\n\n...(truncated for length)"
+        was_truncated = True
     thinking = await edit_or_reply(event, "**Summarizing...**")
     try:
         provider, conv_engine = get_ai_components()
     except Exception as e:
         return await thinking.edit(f"**AI not configured:** {e}")
     try:
+        trunc_note = ""
+        if was_truncated:
+            trunc_note = (
+                "\n(Note: message history was truncated — say if matches might be "
+                "outside the scanned text.)\n"
+            )
         if focus:
-            user_msg = f"Summarize this (focus: {focus}):\n\n{text}"
+            user_msg = (
+                f"Find and summarize everything related to this focus: {focus}\n"
+                f"{trunc_note}\nMessages:\n{text}"
+            )
         else:
             user_msg = f"Summarize this:\n\n{text}"
         messages = conv_engine.build_messages(
@@ -113,8 +165,9 @@ async def _summarize_text(event, text: str, focus: str | None = None):
             summarize_mode=True,
             summarize_focus=focus,
         )
+        max_tokens = 800 if focus else 500
         response = await provider.generate_response(
-            messages=messages, temperature=0.4, max_tokens=500
+            messages=messages, temperature=0.35, max_tokens=max_tokens
         )
         if not response:
             return await thinking.edit("**Empty summary. Try again.**")
@@ -148,32 +201,36 @@ async def _summarize_voice(event, reply, focus: str | None = None):
 
 async def _summarize_last_n(event, n: int, focus: str | None = None):
     """Last N messages in current chat (DM or group)."""
-    n = max(1, min(n, MAX_RANGE))
-    msgs = await event.client.get_messages(event.chat_id, limit=n)
-    rows = [m for m in reversed(msgs) if m.id != event.id]
+    cap = _max_summarize_range()
+    n = max(1, min(n, cap))
+    kwargs: dict = {"entity": event.chat_id, "limit": n + 1}
+    topic = _reply_to_kw(await event.get_reply_message()) or _reply_to_kw(event)
+    if topic:
+        kwargs["reply_to"] = topic
+    msgs = await event.client.get_messages(**kwargs)
+    rows = [m for m in reversed(msgs) if m.id != event.id and (m.message or m.text)]
+    truncated = len(rows) >= n
     text = await _format_messages(rows)
     if not text:
         return await edit_delete(event, "**No text messages to summarize.**")
-    return await _summarize_text(event, text, focus=focus)
+    return await _summarize_text(event, text, focus=focus, truncated=truncated)
 
 
 async def _summarize_after_reply(event, reply, focus: str | None = None):
-    """All text messages after the replied message up to (not including) the command."""
-    msgs = await event.client.get_messages(
-        event.chat_id,
-        min_id=reply.id,
-        max_id=event.id,
-        limit=MAX_RANGE,
+    """Messages from replied anchor through this command (inclusive of reply when focused)."""
+    min_id = reply.id - 1 if focus else reply.id
+    rows = await _collect_range_messages(
+        event, min_id=min_id, max_id=event.id, anchor_msg=reply
     )
-    rows = list(reversed(msgs))
+    truncated = len(rows) >= _max_summarize_range()
     text = await _format_messages(rows)
     if not text:
         return await edit_delete(
             event,
-            "**No text messages after that.** Reply to an earlier message, "
-            "or use `.summarizethis` / `.sumthis` for just that one.",
+            "**No text messages in that range.** Reply to an earlier message, "
+            "or use `.summarize 50 <focus>` for the last 50 messages.",
         )
-    return await _summarize_text(event, text, focus=focus)
+    return await _summarize_text(event, text, focus=focus, truncated=truncated)
 
 
 async def _summarize_single_reply(event, reply, focus: str | None = None):
@@ -205,7 +262,9 @@ async def _run_summarize(event, arg: str | None):
         return await _summarize_last_n(event, count, focus=focus)
 
     if mode == "focus" and not reply:
-        return await edit_delete(event, _USAGE_HINT)
+        # No reply: scan recent messages with focus (default 80)
+        default_n = min(80, _max_summarize_range())
+        return await _summarize_last_n(event, default_n, focus=focus)
 
     if mode == "focus" and reply:
         mediatype = await media_type(reply)
@@ -225,8 +284,9 @@ async def _run_summarize(event, arg: str | None):
 _USAGE_INFO = {
     "header": "Summarize text, voice, or chat ranges",
     "description": (
-        "Works in DMs and groups. Reply + `.sum` summarizes everything after that message. "
-        "Text after a space is a focus prompt. For one message only, use `.sumthis` (no space)."
+        "Works in DMs and groups. Focus text scans semantically across up to 150 messages. "
+        "Reply + `.sum` scans from that message forward. `.sum <focus>` without reply scans "
+        "the last 80 messages. For one message only, use `.sumthis`."
     ),
     "usage": [
         "{tr}summarize (reply) — all texts after that message",
@@ -235,12 +295,14 @@ _USAGE_INFO = {
         "{tr}sumthis (reply) — short alias for single message",
         "{tr}summarize 50 — last 50 in DM or group",
         "{tr}summarize 30 key deadlines only — last 30 with focus",
+        "{tr}sum any job role posted — last 80 with focus",
     ],
     "examples": [
         "{tr}summarize",
         "{tr}sum tell me where he told me to meet",
         "{tr}summarizethis",
-        "{tr}summarize 30 who agreed to pay",
+        "{tr}summarize 100 job postings",
+        "{tr}sum deadlines and meeting times",
     ],
 }
 

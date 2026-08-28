@@ -190,6 +190,7 @@ You represent {self.user_name}. Be cool, funny, helpful — and human."""
         summarize_mode: bool = False,
         summarize_focus: Optional[str] = None,
         summarize_link_mode: bool = False,
+        helpai_mode: bool = False,
     ) -> List[Dict[str, str]]:
         """
         Build the full message list for the AI provider.
@@ -295,6 +296,20 @@ Henok needs reply options for a message he received. Give exactly 3 labeled opti
 3. Professional: ...
 Keep each option short — copy-paste ready. Match the vibe of the incoming message."""
 
+        if helpai_mode:
+            system_content += """
+
+BOT HELP AI MODE:
+Henok is asking how to use THIS Telegram userbot.
+- Answer ONLY using the COMMAND CATALOG provided in the user message
+- Recommend 1–3 exact commands with correct prefix and syntax
+- Include short usage examples (copy-paste ready)
+- Say if the command needs a reply, media, or an API key / env var
+- Mention related aliases (e.g. .sum vs .summarize)
+- If nothing fits, say honestly and suggest .cmds, .s <keyword>, or .help <name>
+- Do NOT invent commands that are not in the catalog
+- Be concise and practical — Henok wants the command name first, then how to use it"""
+
         if summarize_mode:
             if summarize_link_mode:
                 system_content += """
@@ -303,7 +318,9 @@ OTHER-CHAT SUMMARIZE MODE (Telegram HTML):
 Henok scanned another chat silently. Output **valid Telegram HTML only** (no markdown).
 - For each item that matches the focus (if any): 2–3 short lines, then wrap the key line in
   <a href="EXACT_URL_FROM_MAP">descriptive text</a> using URLs from the message link map.
-- After focused items, add a section: <b>Others:</b> with brief bullets (no links required).
+- After focused items, add a section: <b>Others:</b> with brief plain-text bullets only.
+- In <b>Others:</b> do NOT use any <a> tags or links — text only.
+- Only use <a href="..."> for focus matches, and only URLs from the message link map.
 - Preserve names, dates, and decisions.
 - No intro fluff. No markdown code blocks.
 - Max ~12 lines total unless content is very long."""
@@ -314,7 +331,7 @@ FOCUS REQUEST (priority):
 Henok wants you to extract or emphasize: "{summarize_focus.strip()}"
 - Lead with matches to this focus, each with a link to the most relevant message.
 - If nothing matches, start with: "Not found in the scanned messages."
-- Still add a short <b>Others:</b> section if anything else was notable."""
+- Still add a short <b>Others:</b> section if anything else was notable (plain text, no links)."""
             else:
                 system_content += """
 
@@ -329,9 +346,13 @@ Produce a concise TL;DR summary of the content Henok provided.
 
 FOCUS REQUEST (priority):
 Henok wants you to extract or emphasize: "{summarize_focus.strip()}"
-- Still summarize relevant context, but lead with what matches this focus
-- If the focus info is not in the text, say clearly: "Not found in the messages."
-- Keep bullet format"""
+- Read EVERY message in the user payload before deciding anything is missing
+- Match semantically: synonyms, shorthand, typos, emojis, and indirect mentions count
+- Lead with the best matching quotes or paraphrases (include sender names when useful)
+- Add 2–5 bullets of relevant context from the same thread
+- Only say "Not found in the scanned messages." if you are certain after reading all text
+- If the user note says history was truncated, mention matches may exist outside the scan
+- Use clear bullet points; be specific (names, dates, numbers, places)"""
 
         messages = [{"role": "system", "content": system_content}]
 

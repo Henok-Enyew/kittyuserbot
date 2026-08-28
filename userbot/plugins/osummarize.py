@@ -9,6 +9,7 @@ from userbot.helpers.functions.osummarize import (
     build_osum_help,
     parse_osum_args,
     resolve_osum_messages,
+    sanitize_osum_html,
 )
 from userbot.plugins.ai_assistant import get_ai_components
 
@@ -82,7 +83,7 @@ async def _run_osum(event, raw: str | None):
         if focus:
             header += f" (focus: {focus})"
         header += ":**"
-        out = header + "\n\n" + response
+        out = header + "\n\n" + sanitize_osum_html(response, link_map)
         if truncated:
             out += f"\n\n_{truncated}_"
         if len(out) > 4000:

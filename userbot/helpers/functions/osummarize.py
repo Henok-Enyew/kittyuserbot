@@ -363,10 +363,40 @@ async def format_messages_with_links(
 def _link_map_block(link_map: Dict[int, str]) -> str:
     if not link_map:
         return ""
-    lines = ["Message link map (use these exact URLs in HTML <a href> tags):"]
+    lines = ["Message link map (use ONLY these exact URLs in <a href> for focus matches):"]
     for mid, url in sorted(link_map.items()):
         lines.append(f"  msg:{mid} -> {url}")
     return "\n".join(lines)
+
+
+_RE_A_TAG = re.compile(
+    r"<a\s+href=[\"']([^\"']*)[\"'][^>]*>(.*?)</a>",
+    re.I | re.S,
+)
+_RE_OTHERS_SPLIT = re.compile(r"(<b>Others:</b>|Others:)", re.I)
+
+
+def _unwrap_bad_links(html: str, allowed_urls: set[str]) -> str:
+    def repl(m: re.Match) -> str:
+        href = (m.group(1) or "").strip()
+        if href in allowed_urls:
+            return m.group(0)
+        return m.group(2) or ""
+    return _RE_A_TAG.sub(repl, html)
+
+
+def sanitize_osum_html(html: str, link_map: Dict[int, str]) -> str:
+    """Drop hallucinated links; strip all links in the Others section."""
+    if not html:
+        return html
+    allowed = set(link_map.values())
+    parts = _RE_OTHERS_SPLIT.split(html, maxsplit=1)
+    if len(parts) == 3:
+        head = _unwrap_bad_links(parts[0], allowed)
+        label = parts[1]
+        others = _RE_A_TAG.sub(lambda m: m.group(2) or "", parts[2])
+        return head + label + others
+    return _unwrap_bad_links(html, allowed)
 
 
 async def resolve_osum_messages(

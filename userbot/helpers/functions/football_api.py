@@ -26,9 +26,20 @@ MAJOR_APISPORTS_LEAGUE_IDS = frozenset({39, 2, 140, 78, 135})  # PL, UCL, La Lig
 MAJOR_FDATA_CODES = frozenset({"PL", "CL", "PD", "BL1", "SA"})
 MAJOR_LEAGUE_CODES = ("PL", "UCL", "PD", "BL1", "SA")
 
-# API-Football free tier season window (api-sports returns this in errors)
-APISPORTS_FREE_SEASON_MIN = int(os.environ.get("API_FOOTBALL_FREE_SEASON_MIN", "2022"))
-APISPORTS_FREE_SEASON_MAX = int(os.environ.get("API_FOOTBALL_FREE_SEASON_MAX", "2024"))
+# API-Football free tier season window (team queries only; not used for live/today)
+def _apisports_season_bounds() -> Tuple[int, int]:
+    try:
+        lo = int(
+            os.environ.get("API_FOOTBALL_FREE_SEASON_MIN")
+            or getattr(Config, "API_FOOTBALL_FREE_SEASON_MIN", 2022)
+        )
+        hi = int(
+            os.environ.get("API_FOOTBALL_FREE_SEASON_MAX")
+            or getattr(Config, "API_FOOTBALL_FREE_SEASON_MAX", 2024)
+        )
+    except (TypeError, ValueError):
+        lo, hi = 2022, 2024
+    return lo, hi
 
 # football-data.org competition codes
 FDATA_LEAGUE_CODES = {
@@ -171,12 +182,13 @@ def _current_season() -> int:
 
 
 def _clamp_apisports_season(season: Optional[int]) -> int:
-    """Keep season inside API-Football free-plan range when applicable."""
+    """Keep season inside API-Football free-plan range (team/history queries)."""
+    lo, hi = _apisports_season_bounds()
     s = season or _current_season()
-    if s > APISPORTS_FREE_SEASON_MAX:
-        return APISPORTS_FREE_SEASON_MAX
-    if s < APISPORTS_FREE_SEASON_MIN:
-        return APISPORTS_FREE_SEASON_MIN
+    if s > hi:
+        return hi
+    if s < lo:
+        return lo
     return s
 
 
@@ -442,14 +454,15 @@ async def _apisports_fixtures(params: dict) -> List[MatchSnapshot]:
 
 
 def _apisports_league_param(league: str) -> dict:
+    """League id filter only — do not attach season (breaks live/today on free tier)."""
     if not league:
         return {}
     league = league.strip().upper()
     if league.isdigit():
-        return {"league": int(league), "season": _clamp_apisports_season(None)}
+        return {"league": int(league)}
     lid = APISPORTS_LEAGUE_IDS.get(league)
     if lid:
-        return {"league": lid, "season": _clamp_apisports_season(None)}
+        return {"league": lid}
     return {}
 
 
@@ -532,7 +545,8 @@ async def _apisports_team_fixtures(tid: int, season: Optional[int]) -> List[Matc
     """Fetch team fixtures; clamp season and retry within free-tier window."""
     wanted = _clamp_apisports_season(season)
     seasons_to_try = [wanted]
-    for s in range(APISPORTS_FREE_SEASON_MAX, APISPORTS_FREE_SEASON_MIN - 1, -1):
+    lo, hi = _apisports_season_bounds()
+    for s in range(hi, lo - 1, -1):
         if s not in seasons_to_try:
             seasons_to_try.append(s)
 
@@ -570,7 +584,7 @@ async def apisports_team_report(name: str, season: Optional[int] = None) -> Team
     if used_season != requested_season:
         note_parts.append(
             f"Using season {used_season} (API-Football free tier: "
-            f"{APISPORTS_FREE_SEASON_MIN}–{APISPORTS_FREE_SEASON_MAX})."
+            f"{_apisports_season_bounds()[0]}–{_apisports_season_bounds()[1]})."
         )
     if _major_only_enabled():
         note_parts.append(
@@ -968,8 +982,8 @@ def build_fball_help(provider: str = "apisports", **overrides) -> dict:
                 "Env FBALL_MAJOR_ONLY=false to show all leagues. "
                 "Defaults: {tr}fballset."
             ).format(
-                min=APISPORTS_FREE_SEASON_MIN,
-                max=APISPORTS_FREE_SEASON_MAX,
+                min=_apisports_season_bounds()[0],
+                max=_apisports_season_bounds()[1],
             ),
         }
 
