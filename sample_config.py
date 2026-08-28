@@ -105,6 +105,10 @@ class Config(object):
     FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", None)
     # Optional defaults for football / meteo plugins (overridable via gvars)
     FBALL_DEFAULT_LEAGUE = os.environ.get("FBALL_DEFAULT_LEAGUE", None)
+    # Major leagues only for .fball / .fdata (PL, UCL, La Liga, Bundesliga, Serie A)
+    FBALL_MAJOR_ONLY = os.environ.get("FBALL_MAJOR_ONLY", "true")
+    API_FOOTBALL_FREE_SEASON_MIN = os.environ.get("API_FOOTBALL_FREE_SEASON_MIN", "2022")
+    API_FOOTBALL_FREE_SEASON_MAX = os.environ.get("API_FOOTBALL_FREE_SEASON_MAX", "2024")
     METEO_DEFAULT_DAYS = int(os.environ.get("METEO_DEFAULT_DAYS", "7"))
     # This is required for the speech to text plugin. Get your USERNAME from
     # https://console.bluemix.net/docs/services/speech-to-text/getting-started.html

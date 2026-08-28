@@ -21,6 +21,15 @@ FDATA_BASE = "https://api.football-data.org/v4"
 
 MAX_MATCHES_REPLY = 20
 
+# Major leagues only (default) — England, Germany, Spain, Italy, Champions League
+MAJOR_APISPORTS_LEAGUE_IDS = frozenset({39, 2, 140, 78, 135})  # PL, UCL, La Liga, Bundesliga, Serie A
+MAJOR_FDATA_CODES = frozenset({"PL", "CL", "PD", "BL1", "SA"})
+MAJOR_LEAGUE_CODES = ("PL", "UCL", "PD", "BL1", "SA")
+
+# API-Football free tier season window (api-sports returns this in errors)
+APISPORTS_FREE_SEASON_MIN = int(os.environ.get("API_FOOTBALL_FREE_SEASON_MIN", "2022"))
+APISPORTS_FREE_SEASON_MAX = int(os.environ.get("API_FOOTBALL_FREE_SEASON_MAX", "2024"))
+
 # football-data.org competition codes
 FDATA_LEAGUE_CODES = {
     "PL": "PL",
@@ -66,6 +75,8 @@ class MatchSnapshot:
     competition: str
     kickoff: Optional[datetime] = None
     minute: Optional[str] = None
+    league_id: Optional[int] = None
+    league_code: str = ""
 
     @property
     def is_live(self) -> bool:
@@ -157,6 +168,60 @@ def _fdata_key() -> Optional[str]:
 def _current_season() -> int:
     today = _today()
     return today.year if today.month >= 7 else today.year - 1
+
+
+def _clamp_apisports_season(season: Optional[int]) -> int:
+    """Keep season inside API-Football free-plan range when applicable."""
+    s = season or _current_season()
+    if s > APISPORTS_FREE_SEASON_MAX:
+        return APISPORTS_FREE_SEASON_MAX
+    if s < APISPORTS_FREE_SEASON_MIN:
+        return APISPORTS_FREE_SEASON_MIN
+    return s
+
+
+def _major_only_enabled() -> bool:
+    raw = os.environ.get("FBALL_MAJOR_ONLY", getattr(Config, "FBALL_MAJOR_ONLY", "true"))
+    return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _name_is_major_competition(name: str) -> bool:
+    n = (name or "").lower()
+    if not n:
+        return False
+    # Avoid English Championship, regional leagues, etc.
+    if "championship" in n and "champions league" not in n:
+        return False
+    markers = (
+        "premier league",
+        "bundesliga",
+        "la liga",
+        "serie a",
+        "uefa champions league",
+        "champions league",
+    )
+    return any(m in n for m in markers)
+
+
+def _is_major_apisports_match(match: MatchSnapshot) -> bool:
+    if match.league_id is not None:
+        return match.league_id in MAJOR_APISPORTS_LEAGUE_IDS
+    return _name_is_major_competition(match.competition)
+
+
+def _is_major_fdata_match(match: MatchSnapshot) -> bool:
+    if match.league_code:
+        return match.league_code.upper() in MAJOR_FDATA_CODES
+    return _name_is_major_competition(match.competition)
+
+
+def _filter_major_matches(
+    matches: List[MatchSnapshot], provider: str = "apisports"
+) -> List[MatchSnapshot]:
+    if not _major_only_enabled():
+        return matches
+    fn = _is_major_fdata_match if provider == "fdata" else _is_major_apisports_match
+    return [m for m in matches if fn(m)]
 
 
 def parse_football_args(raw: str, gvars: dict) -> FootballQuery:
@@ -366,6 +431,7 @@ def _parse_apisports_fixture(item: dict) -> MatchSnapshot:
         competition=(league.get("name") or league.get("country") or "League"),
         kickoff=kickoff,
         minute=status.get("elapsed") and f"{status['elapsed']}",
+        league_id=league.get("id"),
     )
 
 
@@ -380,10 +446,10 @@ def _apisports_league_param(league: str) -> dict:
         return {}
     league = league.strip().upper()
     if league.isdigit():
-        return {"league": int(league), "season": _current_season()}
+        return {"league": int(league), "season": _clamp_apisports_season(None)}
     lid = APISPORTS_LEAGUE_IDS.get(league)
     if lid:
-        return {"league": lid, "season": _current_season()}
+        return {"league": lid, "season": _clamp_apisports_season(None)}
     return {}
 
 
@@ -397,12 +463,12 @@ async def apisports_live(league: str = "") -> List[MatchSnapshot]:
             for m in matches
             if key in m.competition.lower()
         ]
-    return matches
+    return _filter_major_matches(matches, "apisports")
 
 
 async def apisports_today(league: str = "") -> List[MatchSnapshot]:
     params = {"date": _today().isoformat(), **_apisports_league_param(league)}
-    return await _apisports_fixtures(params)
+    return _filter_major_matches(await _apisports_fixtures(params), "apisports")
 
 
 async def apisports_range(
@@ -416,7 +482,7 @@ async def apisports_range(
     if status:
         params["status"] = status
     matches = await _apisports_fixtures(params)
-    return matches
+    return _filter_major_matches(matches, "apisports")
 
 
 async def apisports_upcoming(days: int, league: str = "") -> List[MatchSnapshot]:
@@ -442,16 +508,50 @@ async def _apisports_find_team(name: str) -> Optional[dict]:
     items = data.get("response") or []
     if not items:
         return None
-    # pick best match
     name_l = name.lower()
-    for item in items:
+
+    def _team_major(item: dict) -> bool:
         team = item.get("team") or {}
-        if name_l in (team.get("name") or "").lower():
-            _cache_set(cache_key, team, 3600)
-            return team
-    team = (items[0].get("team") or {})
+        country = (team.get("country") or "").lower()
+        # Prefer teams from major European leagues
+        return country in {"england", "germany", "spain", "italy", "france"}
+
+    ranked = sorted(
+        items,
+        key=lambda i: (
+            0 if name_l in ((i.get("team") or {}).get("name") or "").lower() else 1,
+            0 if _team_major(i) else 1,
+        ),
+    )
+    team = (ranked[0].get("team") or {})
     _cache_set(cache_key, team, 3600)
     return team
+
+
+async def _apisports_team_fixtures(tid: int, season: Optional[int]) -> List[MatchSnapshot]:
+    """Fetch team fixtures; clamp season and retry within free-tier window."""
+    wanted = _clamp_apisports_season(season)
+    seasons_to_try = [wanted]
+    for s in range(APISPORTS_FREE_SEASON_MAX, APISPORTS_FREE_SEASON_MIN - 1, -1):
+        if s not in seasons_to_try:
+            seasons_to_try.append(s)
+
+    for try_season in seasons_to_try:
+        try:
+            fixtures = await _apisports_fixtures(
+                {"team": tid, "season": try_season, "last": 40}
+            )
+            major = _filter_major_matches(fixtures, "apisports")
+            if major:
+                return major
+            if fixtures and not _major_only_enabled():
+                return fixtures
+        except RuntimeError as e:
+            err = str(e).lower()
+            if "season" in err or "plan" in err:
+                continue
+            raise
+    return []
 
 
 async def apisports_team_report(name: str, season: Optional[int] = None) -> TeamFootballReport:
@@ -459,13 +559,23 @@ async def apisports_team_report(name: str, season: Optional[int] = None) -> Team
     if not team:
         raise ValueError(f"Team not found: {name}")
     tid = team.get("id")
-    season = season or _current_season()
-    fixtures = await _apisports_fixtures({"team": tid, "season": season, "last": 15})
+    used_season = _clamp_apisports_season(season)
+    fixtures = await _apisports_team_fixtures(tid, season)
     recent = [m for m in fixtures if m.is_finished][-5:]
     upcoming = [m for m in fixtures if m.is_scheduled][:5]
 
     trophies: List[Trophy] = []
-    note = ""
+    note_parts: List[str] = []
+    requested_season = season if season is not None else _current_season()
+    if used_season != requested_season:
+        note_parts.append(
+            f"Using season {used_season} (API-Football free tier: "
+            f"{APISPORTS_FREE_SEASON_MIN}–{APISPORTS_FREE_SEASON_MAX})."
+        )
+    if _major_only_enabled():
+        note_parts.append(
+            "Major leagues only: PL, Bundesliga, La Liga, Serie A, UCL."
+        )
     try:
         tdata = await _apisports_get("trophies", {"team": tid})
         counts: dict = {}
@@ -476,17 +586,19 @@ async def apisports_team_report(name: str, season: Optional[int] = None) -> Team
             place = (entry.get("place") or "").lower()
             if place and place not in {"winner", "1st", "champion"}:
                 continue
-            name = entry.get("league") or entry.get("name") or "Trophy"
-            counts[name] = counts.get(name, 0) + 1
+            trophy_name = entry.get("league") or entry.get("name") or "Trophy"
+            counts[trophy_name] = counts.get(trophy_name, 0) + 1
             s = entry.get("season")
             if s:
-                seasons_map.setdefault(name, []).append(str(s))
+                seasons_map.setdefault(trophy_name, []).append(str(s))
         trophies = [
             Trophy(name=n, count=c, seasons=seasons_map.get(n, [])[:5])
             for n, c in sorted(counts.items(), key=lambda x: -x[1])
         ]
     except Exception:
-        note = "_Trophy details unavailable right now._"
+        note_parts.append("Trophy details unavailable right now.")
+
+    note = ("_" + " ".join(note_parts) + "_") if note_parts else ""
 
     return TeamFootballReport(
         team_name=team.get("name") or name,
@@ -501,7 +613,7 @@ async def apisports_league_matches(league: str) -> List[MatchSnapshot]:
     params = _apisports_league_param(league)
     if not params:
         raise ValueError(
-            f"Unknown league `{league}`. Try PL, UCL, PD, BL1, SA, FL1 or a numeric id."
+            f"Unknown league `{league}`. Major codes: PL, UCL, PD, BL1, SA."
         )
     start = _today() - timedelta(days=3)
     end = _today() + timedelta(days=7)
@@ -567,6 +679,7 @@ def _parse_fdata_match(item: dict) -> MatchSnapshot:
         competition=comp,
         kickoff=kickoff,
         minute=minute,
+        league_code=(item.get("competition") or {}).get("code") or "",
     )
 
 
@@ -587,7 +700,8 @@ async def fdata_live(league: str = "") -> List[MatchSnapshot]:
         code = _fdata_league_code(league)
         data = await _fdata_get(f"competitions/{code}/matches", {"status": "LIVE"})
         return [_parse_fdata_match(i) for i in data.get("matches") or []]
-    return await _fdata_matches(params)
+    matches = await _fdata_matches(params)
+    return _filter_major_matches(matches, "fdata")
 
 
 async def fdata_today(league: str = "") -> List[MatchSnapshot]:
@@ -599,7 +713,8 @@ async def fdata_today(league: str = "") -> List[MatchSnapshot]:
             {"dateFrom": d, "dateTo": d},
         )
         return [_parse_fdata_match(i) for i in data.get("matches") or []]
-    return await _fdata_matches({"dateFrom": d, "dateTo": d})
+    matches = await _fdata_matches({"dateFrom": d, "dateTo": d})
+    return _filter_major_matches(matches, "fdata")
 
 
 async def fdata_range(start: date, end: date, league: str = "") -> List[MatchSnapshot]:
@@ -611,7 +726,8 @@ async def fdata_range(start: date, end: date, league: str = "") -> List[MatchSna
             params,
         )
         return [_parse_fdata_match(i) for i in data.get("matches") or []]
-    return await _fdata_matches(params)
+    matches = await _fdata_matches(params)
+    return _filter_major_matches(matches, "fdata")
 
 
 async def fdata_upcoming(days: int, league: str = "") -> List[MatchSnapshot]:
@@ -635,7 +751,7 @@ async def _fdata_find_team(name: str) -> Optional[dict]:
         return cached
 
     name_l = name.lower()
-    for code in ("PL", "PD", "BL1", "SA", "FL1", "CL"):
+    for code in MAJOR_LEAGUE_CODES:
         try:
             data = await _fdata_get(f"competitions/{code}/teams", {})
             for t in data.get("teams") or []:
@@ -656,17 +772,26 @@ async def fdata_team_report(name: str, season: Optional[int] = None) -> TeamFoot
             f"Team not found: {name}. Free tier covers top leagues only (PL, PD, BL1, SA, FL1, CL)."
         )
     tid = team.get("id")
-    data = await _fdata_get(f"teams/{tid}/matches", {"limit": 20})
-    fixtures = [_parse_fdata_match(i) for i in data.get("matches") or []]
+    data = await _fdata_get(f"teams/{tid}/matches", {"limit": 40})
+    fixtures = _filter_major_matches(
+        [_parse_fdata_match(i) for i in data.get("matches") or []],
+        "fdata",
+    )
     recent = [m for m in fixtures if m.is_finished][-5:]
     upcoming = [m for m in fixtures if m.is_scheduled][:5]
+
+    note = ""
+    if _major_only_enabled():
+        note = "_Major leagues only: PL, Bundesliga, La Liga, Serie A, UCL._"
 
     return TeamFootballReport(
         team_name=team.get("name") or name,
         recent=recent,
         upcoming=upcoming,
         trophies=[],
-        trophies_note="_Title wins not exposed on football-data.org free tier — use `.fball team` for trophies._",
+        trophies_note=note or (
+            "_Title wins not exposed on football-data.org free tier — use `.fball team` for trophies._"
+        ),
     )
 
 
@@ -759,14 +884,11 @@ def build_fball_help(provider: str = "apisports", **overrides) -> dict:
         "league": "League window — recent + upcoming for a competition code",
     }
     leagues = {
-        "PL / EPL": "Premier League",
+        "PL / EPL": "Premier League (England)",
         "UCL / CL": "UEFA Champions League",
-        "UEL / EL": "UEFA Europa League",
-        "PD / LALIGA": "La Liga",
-        "BL1": "Bundesliga",
-        "SA": "Serie A",
-        "FL1": "Ligue 1",
-        "numeric id": "API-Football league id (fball only)",
+        "PD / LALIGA": "La Liga (Spain)",
+        "BL1": "Bundesliga (Germany)",
+        "SA": "Serie A (Italy)",
     }
 
     if provider == "fdata":
@@ -803,9 +925,8 @@ def build_fball_help(provider: str = "apisports", **overrides) -> dict:
                 "fball / afball": "API-Football — broader coverage + trophies (separate key)",
             },
             "note": (
-                "Free tier: PL, PD, BL1, SA, FL1, CL only. No trophy titles on free tier — "
-                "use {tr}fball team for honours. Defaults via gvars "
-                "(FBALL_UP_DAYS, FBALL_PAST_DAYS, FBALL_LEAGUE) — set with {tr}fballset."
+                "Default: major leagues only (PL, Bundesliga, La Liga, Serie A, UCL). "
+                "Free tier covers those competitions. Defaults via {tr}fballset."
             ),
         }
     else:
@@ -842,8 +963,13 @@ def build_fball_help(provider: str = "apisports", **overrides) -> dict:
                 "fdata / ffdata": "football-data.org — alternate provider, separate key",
             },
             "note": (
-                "Optional env FBALL_DEFAULT_LEAGUE=PL. Per-user defaults: {tr}fballset up 7 | "
-                "{tr}fballset past 5 | {tr}fballset league UCL. Alias: {tr}afball."
+                "Default: major leagues only (PL, Bundesliga, La Liga, Serie A, UCL). "
+                "Free tier seasons {min}–{max} — omit season or use e.g. 2024. "
+                "Env FBALL_MAJOR_ONLY=false to show all leagues. "
+                "Defaults: {tr}fballset."
+            ).format(
+                min=APISPORTS_FREE_SEASON_MIN,
+                max=APISPORTS_FREE_SEASON_MAX,
             ),
         }
 
