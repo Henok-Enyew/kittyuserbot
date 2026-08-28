@@ -110,6 +110,8 @@ class Config(object):
     API_FOOTBALL_FREE_SEASON_MIN = os.environ.get("API_FOOTBALL_FREE_SEASON_MIN", "2022")
     API_FOOTBALL_FREE_SEASON_MAX = os.environ.get("API_FOOTBALL_FREE_SEASON_MAX", "2024")
     METEO_DEFAULT_DAYS = int(os.environ.get("METEO_DEFAULT_DAYS", "7"))
+    # Cross-chat silent summarizer (.osum) — max messages per scan
+    OSUM_MAX_MESSAGES = int(os.environ.get("OSUM_MAX_MESSAGES", "100"))
     # This is required for the speech to text plugin. Get your USERNAME from
     # https://console.bluemix.net/docs/services/speech-to-text/getting-started.html
     IBM_WATSON_CRED_URL = os.environ.get("IBM_WATSON_CRED_URL", None)

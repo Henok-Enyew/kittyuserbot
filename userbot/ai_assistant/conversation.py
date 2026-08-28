@@ -189,6 +189,7 @@ You represent {self.user_name}. Be cool, funny, helpful — and human."""
         reply_mode: Optional[str] = None,
         summarize_mode: bool = False,
         summarize_focus: Optional[str] = None,
+        summarize_link_mode: bool = False,
     ) -> List[Dict[str, str]]:
         """
         Build the full message list for the AI provider.
@@ -295,7 +296,27 @@ Henok needs reply options for a message he received. Give exactly 3 labeled opti
 Keep each option short — copy-paste ready. Match the vibe of the incoming message."""
 
         if summarize_mode:
-            system_content += """
+            if summarize_link_mode:
+                system_content += """
+
+OTHER-CHAT SUMMARIZE MODE (Telegram HTML):
+Henok scanned another chat silently. Output **valid Telegram HTML only** (no markdown).
+- For each item that matches the focus (if any): 2–3 short lines, then wrap the key line in
+  <a href="EXACT_URL_FROM_MAP">descriptive text</a> using URLs from the message link map.
+- After focused items, add a section: <b>Others:</b> with brief bullets (no links required).
+- Preserve names, dates, and decisions.
+- No intro fluff. No markdown code blocks.
+- Max ~12 lines total unless content is very long."""
+                if summarize_focus:
+                    system_content += f"""
+
+FOCUS REQUEST (priority):
+Henok wants you to extract or emphasize: "{summarize_focus.strip()}"
+- Lead with matches to this focus, each with a link to the most relevant message.
+- If nothing matches, start with: "Not found in the scanned messages."
+- Still add a short <b>Others:</b> section if anything else was notable."""
+            else:
+                system_content += """
 
 SUMMARIZE MODE:
 Produce a concise TL;DR summary of the content Henok provided.
@@ -303,8 +324,8 @@ Produce a concise TL;DR summary of the content Henok provided.
 - Preserve names, decisions, and action items
 - No fluff, no intro/outro
 - Max 8 bullets unless content is very long"""
-            if summarize_focus:
-                system_content += f"""
+                if summarize_focus:
+                    system_content += f"""
 
 FOCUS REQUEST (priority):
 Henok wants you to extract or emphasize: "{summarize_focus.strip()}"
