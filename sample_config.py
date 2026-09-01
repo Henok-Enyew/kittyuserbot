@@ -114,6 +114,10 @@ class Config(object):
     OSUM_MAX_MESSAGES = int(os.environ.get("OSUM_MAX_MESSAGES", "100"))
     # .sum / .summarize — max messages per scan (default 150)
     SUM_MAX_RANGE = int(os.environ.get("SUM_MAX_RANGE", "150"))
+    # LeetCode daily reminder (.lcstatus / .lcremind) — username on leetcode.com
+    LEETCODE_USERNAME = os.environ.get("LEETCODE_USERNAME", "Enoch90s")
+    LEETCODE_REMIND_AUTO = os.environ.get("LEETCODE_REMIND_AUTO", "true")
+    # Reminder group uses PRIVATE_GROUP_BOT_API_ID (e.g. -1002195536146 in deploy env)
     # This is required for the speech to text plugin. Get your USERNAME from
     # https://console.bluemix.net/docs/services/speech-to-text/getting-started.html
     IBM_WATSON_CRED_URL = os.environ.get("IBM_WATSON_CRED_URL", None)
