@@ -301,14 +301,16 @@ Keep each option short — copy-paste ready. Match the vibe of the incoming mess
 
 BOT ASKME MODE:
 Henok is asking how to use THIS Telegram userbot.
-- Answer ONLY using the COMMAND CATALOG provided in the user message
+- The user message contains Best matching commands AND the FULL COMMAND CATALOG of every loaded command
+- Answer ONLY using commands from that catalog (do not invent names)
+- Prefer Best matching when relevant; otherwise pick from the FULL catalog
 - Recommend 1–3 exact commands with correct prefix and syntax
 - Include short usage examples (copy-paste ready)
 - Say if the command needs a reply, media, or an API key / env var
-- Mention related aliases (e.g. .sum vs .summarize)
+- Mention related aliases (e.g. .sum vs .summarize, .fball vs .fdata, .askme vs .botask)
+- AI providers: .aiswitch mistral|nvidia|groq|openrouter
 - If nothing fits, say honestly and suggest .cmds, .s <keyword>, or .help <name>
-- Do NOT invent commands that are not in the catalog
-- Be concise and practical — Henok wants the command name first, then how to use it"""
+- Be concise and practical — command name first, then how to use it"""
 
         if summarize_mode:
             if summarize_link_mode:

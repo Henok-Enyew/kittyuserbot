@@ -1,29 +1,22 @@
-# NVIDIA AI Provider Implementation
+# OpenRouter AI Provider Implementation (OpenAI-compatible)
 import aiohttp
 from typing import Dict, List, Optional
 
 from .base import AIProvider, openai_message_text
 
 
-class NVIDIAProvider(AIProvider):
-    """NVIDIA AI provider implementation (OpenAI-compatible NIM endpoint)."""
+class OpenRouterProvider(AIProvider):
+    """OpenRouter chat completions provider."""
 
-    API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-    DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+    API_URL = "https://openrouter.ai/api/v1/chat/completions"
+    DEFAULT_MODEL = "openrouter/auto"
 
     def __init__(self, api_key: str = None, model: Optional[str] = None):
-        """
-        Initialize NVIDIA provider.
-
-        Args:
-            api_key: NVIDIA API key
-            model: Optional model override (defaults to DEFAULT_MODEL)
-        """
         super().__init__(api_key)
         self.model = model or self.DEFAULT_MODEL
 
     def get_provider_name(self) -> str:
-        return "NVIDIA AI"
+        return "OpenRouter AI"
 
     async def generate_response(
         self,
@@ -31,20 +24,19 @@ class NVIDIAProvider(AIProvider):
         temperature: float = 0.7,
         max_tokens: int = 500,
     ) -> str:
-        """Generate response using NVIDIA AI API."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            # App attribution (optional for auth, recommended by OpenRouter)
+            "HTTP-Referer": "https://github.com/Henok-Enyew/kittyuserbot",
+            "X-Title": "kittyuserbot",
         }
-
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
-            # Nemotron thinking mode fills reasoning_content and can empty content
-            "chat_template_kwargs": {"enable_thinking": False},
         }
 
         max_retries = 2
@@ -62,32 +54,32 @@ class NVIDIAProvider(AIProvider):
                             if attempt < max_retries - 1:
                                 continue
                             raise Exception(
-                                f"NVIDIA API error ({response.status}): {error_text}"
+                                f"OpenRouter API error ({response.status}): {error_text}"
                             )
 
                         data = await response.json()
                         content = openai_message_text(
                             (data.get("choices") or [{}])[0].get("message")
                         )
-
                         if not content:
                             if attempt < max_retries - 1:
                                 continue
-                            raise Exception("NVIDIA returned empty response")
-
+                            raise Exception("OpenRouter returned empty response")
                         return content
 
             except aiohttp.ClientError as e:
                 if attempt < max_retries - 1:
                     continue
-                raise Exception(f"Network error calling NVIDIA API: {str(e)}")
+                raise Exception(f"Network error calling OpenRouter API: {str(e)}")
             except KeyError as e:
                 if attempt < max_retries - 1:
                     continue
-                raise Exception(f"Unexpected NVIDIA API response format: {str(e)}")
+                raise Exception(
+                    f"Unexpected OpenRouter API response format: {str(e)}"
+                )
             except Exception as e:
                 if attempt < max_retries - 1:
                     continue
-                raise Exception(f"NVIDIA AI error: {str(e)}")
+                raise Exception(f"OpenRouter AI error: {str(e)}")
 
-        raise Exception("NVIDIA AI failed after retries")
+        raise Exception("OpenRouter AI failed after retries")

@@ -35,39 +35,68 @@ def _resolve_config(key, default=None):
         return default
 
 
+def _provider_token(provider) -> str:
+    """Map display name like 'OpenRouter AI' -> 'openrouter' for state matching."""
+    name = (provider.get_provider_name() or "").lower().replace(" ", "")
+    for token in ("openrouter", "mistral", "nvidia", "groq"):
+        if name.startswith(token):
+            return token
+    return (provider.get_provider_name() or "").lower().split()[0]
+
+
+def _resolve_provider_model(provider_name: str):
+    """Per-provider model env; AI_MODEL is NVIDIA-only for backward compatibility."""
+    if provider_name == "nvidia":
+        return (
+            _resolve_config("NVIDIA_MODEL")
+            or _resolve_config("AI_MODEL")
+            or None
+        )
+    if provider_name == "groq":
+        return _resolve_config("GROQ_MODEL") or None
+    if provider_name == "openrouter":
+        return _resolve_config("OPENROUTER_MODEL") or None
+    if provider_name == "mistral":
+        return _resolve_config("MISTRAL_MODEL") or None
+    return None
+
+
 def get_ai_components():
     """Lazy-initialise and return (provider, conversation_engine)."""
     global _ai_provider, _conv_engine
 
     # Always get the current provider from state
     current_provider = ai_state.get_provider()
-    
+
     # Check if we need to reinitialize the provider
-    if _ai_provider is None or _ai_provider.get_provider_name().lower().split()[0] != current_provider:
+    if _ai_provider is None or _provider_token(_ai_provider) != current_provider:
         # Get provider-specific API key
         if current_provider == "mistral":
             api_key = _resolve_config("MISTRAL_API_KEY") or _resolve_config("AI_API_KEY")
         elif current_provider == "nvidia":
             api_key = _resolve_config("NVIDIA_API_KEY") or _resolve_config("AI_API_KEY")
+        elif current_provider == "groq":
+            api_key = _resolve_config("GROQ_API_KEY") or _resolve_config("AI_API_KEY")
+        elif current_provider == "openrouter":
+            api_key = _resolve_config("OPENROUTER_API_KEY") or _resolve_config(
+                "AI_API_KEY"
+            )
         else:
             api_key = _resolve_config("AI_API_KEY")
-        
+
         if not api_key:
             raise ValueError(
                 f"API key not set for {current_provider}. "
                 f"Set {current_provider.upper()}_API_KEY or AI_API_KEY in environment."
             )
-        
+
         try:
-            # Get model configuration for NVIDIA
-            model = None
-            if current_provider == "nvidia":
-                model = _resolve_config("AI_MODEL")  # Read from config
-                if model:
-                    LOGS.info(f"Using configured NVIDIA model: {model}")
-                else:
-                    LOGS.info("Using default NVIDIA model: meta/llama-3.1-70b-instruct")
-            
+            model = _resolve_provider_model(current_provider)
+            if model:
+                LOGS.info(f"Using configured {current_provider} model: {model}")
+            else:
+                LOGS.info(f"Using default model for {current_provider}")
+
             _ai_provider = get_ai_provider(current_provider, api_key, model=model)
             LOGS.info(f"AI provider initialized: {_ai_provider.get_provider_name()}")
         except Exception as e:
@@ -76,8 +105,11 @@ def get_ai_components():
             if current_provider != "mistral":
                 LOGS.info("Falling back to Mistral provider...")
                 ai_state.set_provider("mistral")
-                api_key = _resolve_config("MISTRAL_API_KEY") or _resolve_config("AI_API_KEY")
-                _ai_provider = get_ai_provider("mistral", api_key, model=None)
+                api_key = _resolve_config("MISTRAL_API_KEY") or _resolve_config(
+                    "AI_API_KEY"
+                )
+                model = _resolve_provider_model("mistral")
+                _ai_provider = get_ai_provider("mistral", api_key, model=model)
             else:
                 raise
 
@@ -213,14 +245,19 @@ async def ai_status(event):
     command=("aiswitch", plugin_category),
     info={
         "header": "Switch AI provider",
-        "description": "Switch between Mistral AI and NVIDIA AI providers at runtime.",
+        "description": (
+            "Switch between Mistral, NVIDIA, Groq, and OpenRouter at runtime."
+        ),
         "usage": [
             "{tr}aiswitch mistral",
             "{tr}aiswitch nvidia",
+            "{tr}aiswitch groq",
+            "{tr}aiswitch openrouter",
         ],
         "examples": [
-            "{tr}aiswitch mistral",
             "{tr}aiswitch nvidia",
+            "{tr}aiswitch groq",
+            "{tr}aiswitch openrouter",
         ],
         "note": "Switching affects all AI features: auto-reply, AI AFK, and AI PM Permit.",
     },
@@ -228,34 +265,37 @@ async def ai_status(event):
 async def ai_switch_provider(event):
     "Switch AI provider at runtime."
     provider_name = event.pattern_match.group(1)
-    
+
+    available = (
+        "**Available providers:**\n"
+        "• `mistral` - Mistral AI\n"
+        "• `nvidia` - NVIDIA AI\n"
+        "• `groq` - Groq AI\n"
+        "• `openrouter` - OpenRouter AI"
+    )
+
     if not provider_name:
         return await edit_delete(
             event,
             "**Usage:** `.aiswitch <provider>`\n\n"
-            "**Available providers:**\n"
-            "• `mistral` - Mistral AI (default)\n"
-            "• `nvidia` - NVIDIA AI\n\n"
+            f"{available}\n\n"
             f"**Current:** {ai_state.get_provider()}",
-            8
+            10,
         )
-    
+
     provider_name = provider_name.strip().lower()
-    
+
     if not ai_state.set_provider(provider_name):
         return await edit_delete(
             event,
-            f"❌ **Invalid provider:** `{provider_name}`\n\n"
-            "**Available providers:**\n"
-            "• `mistral` - Mistral AI\n"
-            "• `nvidia` - NVIDIA AI",
-            6
+            f"❌ **Invalid provider:** `{provider_name}`\n\n{available}",
+            8,
         )
-    
+
     # Force reinitialization on next use
     global _ai_provider
     _ai_provider = None
-    
+
     # Test the new provider
     try:
         provider, _ = get_ai_components()
@@ -264,14 +304,14 @@ async def ai_switch_provider(event):
             event,
             f"✅ **Switched to {provider_display}**\n\n"
             "All AI features will now use this provider.",
-            5
+            5,
         )
     except Exception as e:
         await edit_delete(
             event,
             f"⚠️ **Provider switched but initialization failed:**\n{str(e)}\n\n"
             "The provider will be initialized on first use.",
-            8
+            8,
         )
 
 

@@ -54,7 +54,7 @@ async def _run_askme(event, question: str | None):
             askme_mode=True,
         )
         response = await provider.generate_response(
-            messages=messages, temperature=0.25, max_tokens=600
+            messages=messages, temperature=0.25, max_tokens=900
         )
         if not response:
             return await thinking.edit("**No answer — try rephrasing or use `.s keyword`.**")
