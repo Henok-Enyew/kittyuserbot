@@ -30,6 +30,13 @@ _UNIT_SECONDS = {
     "w": 604800,
     "week": 604800,
     "weeks": 604800,
+    "mo": 2592000,
+    "month": 2592000,
+    "months": 2592000,
+    "y": 31536000,
+    "yr": 31536000,
+    "year": 31536000,
+    "years": 31536000,
 }
 
 _DURATION_TOKEN = re.compile(r"(\d+(?:\.\d+)?)\s*([a-z]+)", re.I)

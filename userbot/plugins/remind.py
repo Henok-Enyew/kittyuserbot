@@ -18,7 +18,7 @@ from userbot import catub
 from ..Config import Config
 from ..core.managers import edit_delete, edit_or_reply
 from ..helpers.functions.kittychat import describe, esc, message_link, name_of
-from ..helpers.functions.kittytime import fmt_local, human_delta, now_utc, split_when
+from ..helpers.functions.kittytime import fmt_local, human_delta, now_utc, split_when, to_local
 
 plugin_category = "utils"
 MARK = "⏰"
@@ -121,3 +121,46 @@ async def unremind_cmd(event):
         return await edit_delete(event, "Nothing to cancel.", 5)
     await event.client(functions.messages.DeleteScheduledMessagesRequest(peer=types.InputPeerSelf(), id=ids))
     await edit_delete(event, f"🗑 Cancelled {len(ids)} reminder{'s' if len(ids) != 1 else ''}.", 6)
+
+
+# ────────────────────────────── .capsule ──────────────────────────────
+
+CAPSULE_MAX = timedelta(days=365) - timedelta(minutes=10)
+
+
+@catub.cat_cmd(
+    pattern=r"capsule(?:\s+([\s\S]+))?$",
+    command=("capsule", plugin_category),
+    info={
+        "header": "Time capsule: a message delivered to this chat in the future (up to 1 year).",
+        "description": "Telegram holds it as a scheduled message, so it arrives even if the bot is gone. "
+        "Great for groups: 'open on graduation day', birthdays, new year...",
+        "usage": "{tr}capsule <when> <message>",
+        "examples": [
+            "{tr}capsule 1y Hey future us, did we ship the startup? 🚀",
+            "{tr}capsule 6mo Check: did everyone keep their new year resolutions?",
+            "{tr}capsule tomorrow 8am good luck on the exam!",
+        ],
+    },
+)
+async def capsule_cmd(event):
+    "Time capsule message."
+    raw = (event.pattern_match.group(1) or "").strip()
+    when, text = split_when(raw)
+    if when is None or not text:
+        return await edit_delete(event, f"`Usage: {Config.COMMAND_HAND_LER}capsule 1y your message`", 8)
+    sealed = now_utc()
+    if when - sealed > CAPSULE_MAX:
+        when = sealed + CAPSULE_MAX
+    if when - sealed < timedelta(minutes=1):
+        return await edit_delete(event, "`A capsule needs at least a minute.`", 6)
+    me = await event.client.get_me()
+    body = (
+        f"📦 <b>Time capsule</b> — sealed {to_local(sealed):%d %b %Y, %H:%M} by {esc(name_of(me))}, "
+        f"{human_delta(when - sealed)} ago\n\n{esc(text)}"
+    )
+    try:
+        await event.client.send_message(event.chat_id, body, parse_mode="html", schedule=when, link_preview=False)
+    except RPCError as e:
+        return await edit_delete(event, f"Couldn't seal it: `{e}`", 8)
+    await edit_delete(event, f"📦 Capsule sealed. It opens here **{fmt_local(when)}**.", 8)

@@ -24,13 +24,27 @@ AI key or Telegram Premium. Every command also shows up in `.help`.
 | `.bdays [refresh]` | Upcoming birthdays of your contacts | `birthdays.py` |
 | `.bdwish remind\|auto\|off\|send\|msg` | Daily 08:00 birthday check; `auto` wishes people with the 🎉 effect | `birthdays.py` |
 | `.quiz [n] [category] [level]` | Native Telegram quiz polls from Open Trivia DB | `quiz.py` |
+| `.ethdate [date]` | Today in the Ethiopian calendar (Amharic + English + Ge'ez numerals), Ethiopian time, next holiday | `habesha.py` |
+| `.ethconv <date>` | Convert Gregorian ⇄ Ethiopian (`2026-11-24`, `15 hidar 2019`, `ኅዳር 15 2019`) | `habesha.py` |
+| `.holidays [n]` | Upcoming Ethiopian public holidays; Fasika computed yearly, Muslim holidays ≈ | `habesha.py` |
+| `.birr [amount] [cur]` | ETB exchange rates, keyless (open.er-api.com, daily official rate) | `habesha.py` |
+| `.countdown <holiday\|date\|2h> [\| title]` | Live self-updating countdown message, survives restarts; `.countdowns`, `.countdown stop` | `countdown.py` |
+| `.kw add\|del\|list\|ignore\|on\|off` | Keyword alerts: Saved Messages ping when your words appear in any group | `kw.py` |
+| `.biz on\|hours\|away\|greet\|test` | Free "Telegram Business": away messages outside working hours + greetings | `biz.py` |
+| `.vfx <effect>` (reply) | Voice changer via ffmpeg: chipmunk, deep, robot, alien, echo, radio, 8d, reverse… | `voicefx.py` |
+| `.antidelete on\|off` | Logs deleted / edited private messages to Saved Messages (opt-in, in-memory) | `antidelete.py` |
+| `.raffle [n]` | Giveaway: animated draw among people who reacted/replied (or recent members) | `groupfun.py` |
+| `.top [24h\|7d\|30d]` | Leaderboard of who talks the most | `groupfun.py` |
+| `.declutter [archive\|read]` | Find never-read channels, dead groups, deleted accounts, old bots; archive or mark read | `declutter.py` |
+| `.capsule <when> <text>` | Time-capsule message delivered to this chat up to a year later | `remind.py` |
 
 Times are parsed and shown in Africa/Addis_Ababa time (`10m`, `1h30m`, `18:30`,
 `6pm`, `tomorrow 9am`).
 
 Shared helpers live in `userbot/helpers/functions/`: `kittytime.py` (time
-parsing), `kittychat.py` (names, links, message labels), `kittycard.py` and
+parsing), `ethiocal.py` (Ethiopian calendar, Ge'ez numerals, holidays), `kittychat.py` (names, links, message labels), `kittycard.py` and
 `wrapped_card.py` (Pillow rendering).
 
 Settings are stored in the `globals` table: `AUTOREACT_RULES`, `BDWISH_MODE`,
-`BDWISH_MSG`, `BDWISH_SENT`, `BDWISH_LAST`, `BDAY_CACHE`.
+`BDWISH_MSG`, `BDWISH_SENT`, `BDWISH_LAST`, `BDAY_CACHE`, `COUNTDOWNS`,
+`KW_STATE`, `BIZ_STATE`, `ANTIDELETE`.
