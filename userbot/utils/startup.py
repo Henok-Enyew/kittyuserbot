@@ -179,13 +179,14 @@ async def load_plugins(folder, extfolder=None):
                             if check > 5:
                                 break
                 else:
-                    os.remove(Path(f"{plugin_path}/{shortname}.py"))
+                    LOGS.info(
+                        f"Skipped loading {shortname} (NO_LOAD or VPS_NOLOAD)."
+                    )
             except Exception as e:
                 if shortname not in failure:
                     failure.append(shortname)
-                os.remove(Path(f"{plugin_path}/{shortname}.py"))
-                LOGS.info(
-                    f"unable to load {shortname} because of error {e}\nBase Folder {plugin_path}"
+                LOGS.exception(
+                    f"Unable to load plugin {shortname}: {e}\nBase folder {plugin_path}"
                 )
     if extfolder:
         if not failure:

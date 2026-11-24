@@ -363,7 +363,7 @@ class AIState:
     def set_provider(self, provider_name: str) -> bool:
         """Set the current AI provider."""
         provider_name = provider_name.lower()
-        valid_providers = ["mistral", "nvidia"]
+        valid_providers = ["mistral", "nvidia", "groq", "openrouter"]
         if provider_name not in valid_providers:
             return False
         self.current_provider = provider_name

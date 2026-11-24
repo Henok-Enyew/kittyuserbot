@@ -99,6 +99,25 @@ class Config(object):
     SCREEN_SHOT_LAYER_ACCESS_KEY = os.environ.get("SCREEN_SHOT_LAYER_ACCESS_KEY", None)
     # Get your own APPID from https://api.openweathermap.org/data/2.5/weather
     OPEN_WEATHER_MAP_APPID = os.environ.get("OPEN_WEATHER_MAP_APPID", None)
+    # API-Football (api-sports) for .fball / .afball — https://www.api-football.com/
+    API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", None)
+    # football-data.org for .fdata / .ffdata — https://www.football-data.org/
+    FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", None)
+    # Optional defaults for football / meteo plugins (overridable via gvars)
+    FBALL_DEFAULT_LEAGUE = os.environ.get("FBALL_DEFAULT_LEAGUE", None)
+    # Major leagues only for .fball / .fdata (PL, La Liga, Champions League)
+    FBALL_MAJOR_ONLY = os.environ.get("FBALL_MAJOR_ONLY", "true")
+    API_FOOTBALL_FREE_SEASON_MIN = os.environ.get("API_FOOTBALL_FREE_SEASON_MIN", "2022")
+    API_FOOTBALL_FREE_SEASON_MAX = os.environ.get("API_FOOTBALL_FREE_SEASON_MAX", "2024")
+    METEO_DEFAULT_DAYS = int(os.environ.get("METEO_DEFAULT_DAYS", "7"))
+    # Cross-chat silent summarizer (.osum) — max messages per scan
+    OSUM_MAX_MESSAGES = int(os.environ.get("OSUM_MAX_MESSAGES", "100"))
+    # .sum / .summarize — max messages per scan (default 150)
+    SUM_MAX_RANGE = int(os.environ.get("SUM_MAX_RANGE", "150"))
+    # LeetCode daily reminder (.lcstatus / .lcremind) — username on leetcode.com
+    LEETCODE_USERNAME = os.environ.get("LEETCODE_USERNAME", "Enoch90s")
+    LEETCODE_REMIND_AUTO = os.environ.get("LEETCODE_REMIND_AUTO", "true")
+    # Reminder group uses PRIVATE_GROUP_BOT_API_ID (e.g. -1002195536146 in deploy env)
     # This is required for the speech to text plugin. Get your USERNAME from
     # https://console.bluemix.net/docs/services/speech-to-text/getting-started.html
     IBM_WATSON_CRED_URL = os.environ.get("IBM_WATSON_CRED_URL", None)
@@ -135,13 +154,24 @@ class Config(object):
     LASTFM_PASSWORD = os.environ.get("LASTFM_PASSWORD", None)
     # Open ai api // get from here: https://platform.openai.com/account/api-keys
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
-    # AI Assistant Configuration
-    # AI Provider: 'mistral' or 'nvidia'
+    # AI Assistant — providers: mistral | nvidia | groq | openrouter
     AI_PROVIDER = os.environ.get("AI_PROVIDER", "mistral")
-    # AI API Key (Mistral AI or NVIDIA API key)
+    # Shared fallback key (prefer provider-specific keys below)
     AI_API_KEY = os.environ.get("AI_API_KEY", None)
+    MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", None)
+    NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", None)
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY", None)
+    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", None)
+    # NVIDIA model only (AI_MODEL / NVIDIA_MODEL). Defaults to nemotron-3.5-lightning.
+    AI_MODEL = os.environ.get("AI_MODEL", None)
+    NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", None)
+    MISTRAL_MODEL = os.environ.get("MISTRAL_MODEL", None)
+    GROQ_MODEL = os.environ.get("GROQ_MODEL", None)  # default openai/gpt-oss-20b
+    OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", None)  # default openrouter/auto
     # Giphy API key for .gifs // https://developers.giphy.com/dashboard/
     GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", None)
+    # Klipy API key for .klipy / .kgifs // https://klipy.com/developers
+    KLIPY_API_KEY = os.environ.get("KLIPY_API_KEY", None)
     # Spotify API for spotify.py // get from here :  https://developer.spotify.com/dashboard/login
     SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", None)
     SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", None)
