@@ -46,6 +46,7 @@ rembg
 requests
 selenium
 setuptools
+six
 ShazamAPI
 somnium
 spamwatch
