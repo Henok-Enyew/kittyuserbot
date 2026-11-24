@@ -11,7 +11,6 @@
 #
 # Placeholders: {name} {first} {back} (when you're back, e.g. "Mon 09:00")
 
-import json
 import time
 from datetime import timedelta
 
@@ -24,7 +23,7 @@ from ..core.logger import logging
 from ..core.managers import edit_delete, edit_or_reply
 from ..helpers.functions.kittychat import name_of
 from ..helpers.functions.kittytime import now_local
-from ..sql_helper.globals import addgvar, gvarstatus
+from ..sql_helper.kitty_kv_sql import kv_get_json, kv_set_json
 
 plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
@@ -46,13 +45,13 @@ _last_away, _last_greet = {}, {}
 
 def _load():
     try:
-        _cfg.update(json.loads(gvarstatus("BIZ_STATE") or "{}"))
+        _cfg.update(kv_get_json("BIZ_STATE", {}) or {})
     except Exception:
         pass
 
 
 def _save():
-    addgvar("BIZ_STATE", json.dumps(_cfg, ensure_ascii=False))
+    kv_set_json("BIZ_STATE", _cfg)
 
 
 _load()

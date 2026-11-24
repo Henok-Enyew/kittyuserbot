@@ -5,7 +5,6 @@
 #   .kw ignore             stop watching this chat     .kw unignore
 #   .kw off / on           pause everything
 
-import json
 import re
 import time
 
@@ -17,7 +16,7 @@ from ..Config import Config
 from ..core.logger import logging
 from ..core.managers import edit_delete, edit_or_reply
 from ..helpers.functions.kittychat import esc, message_link, name_of
-from ..sql_helper.globals import addgvar, gvarstatus
+from ..sql_helper.kitty_kv_sql import kv_get_json, kv_set_json
 
 plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
@@ -29,14 +28,14 @@ _last_hit = {}  # (chat, word) -> time
 
 def _load():
     try:
-        _state.update(json.loads(gvarstatus("KW_STATE") or "{}"))
+        _state.update(kv_get_json("KW_STATE", {}) or {})
     except Exception:
         pass
     _compile()
 
 
 def _save():
-    addgvar("KW_STATE", json.dumps(_state, ensure_ascii=False))
+    kv_set_json("KW_STATE", _state)
     _compile()
 
 

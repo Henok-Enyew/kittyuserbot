@@ -8,7 +8,6 @@
 # Countdowns are stored in the database and resume after restarts.
 
 import contextlib
-import json
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -24,7 +23,7 @@ from ..helpers.functions.digest_builder import ADDIS_TZ
 from ..helpers.functions.ethiocal import HOLIDAY_KEYS, MONTHS_AM, next_holiday, to_ethiopian
 from ..helpers.functions.kittychat import esc
 from ..helpers.functions.kittytime import fmt_local, now_local, now_utc, split_when, to_local
-from ..sql_helper.globals import addgvar, gvarstatus
+from ..sql_helper.kitty_kv_sql import kv_get_json, kv_set_json
 
 plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
@@ -38,13 +37,13 @@ _sched = None
 
 def _load() -> list:
     try:
-        return json.loads(gvarstatus(_KEY) or "[]")
+        return kv_get_json(_KEY, []) or []
     except Exception:
         return []
 
 
 def _save(items: list):
-    addgvar(_KEY, json.dumps(items, ensure_ascii=False))
+    kv_set_json(_KEY, items)
 
 
 def _bar(frac: float, width=12) -> str:

@@ -7,7 +7,6 @@
 #   .autoreacts              list rules     .autoreact clear   remove all
 
 import asyncio
-import json
 import random
 import time
 
@@ -21,7 +20,7 @@ from ..Config import Config
 from ..core.logger import logging
 from ..core.managers import edit_delete, edit_or_reply
 from ..helpers.functions.kittychat import esc, name_of
-from ..sql_helper.globals import addgvar, gvarstatus
+from ..sql_helper.kitty_kv_sql import kv_get_json, kv_set_json
 
 plugin_category = "fun"
 LOGS = logging.getLogger(__name__)
@@ -49,13 +48,13 @@ def _norm(emoji: str) -> str:
 def _load():
     global _rules
     try:
-        _rules = json.loads(gvarstatus(_KEY) or "{}")
+        _rules = kv_get_json(_KEY, {}) or {}
     except Exception:
         _rules = {}
 
 
 def _save():
-    addgvar(_KEY, json.dumps(_rules, ensure_ascii=False))
+    kv_set_json(_KEY, _rules)
 
 
 _load()

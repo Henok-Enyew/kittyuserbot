@@ -9,7 +9,6 @@
 
 import asyncio
 import contextlib
-import json
 import random
 from datetime import date, datetime, timedelta
 
@@ -25,7 +24,7 @@ from ..core.managers import edit_delete, edit_or_reply
 from ..helpers.functions.digest_builder import ADDIS_TZ
 from ..helpers.functions.kittychat import esc, mention_html, name_of
 from ..helpers.functions.kittytime import now_local
-from ..sql_helper.globals import addgvar, gvarstatus
+from ..sql_helper.kitty_kv_sql import kv_get, kv_get_json, kv_set, kv_set_json
 
 plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
@@ -36,11 +35,11 @@ _scheduler = None
 
 
 def _mode() -> str:
-    return (gvarstatus("BDWISH_MODE") or getattr(Config, "BDWISH_MODE", "remind")).lower()
+    return (kv_get("BDWISH_MODE") or getattr(Config, "BDWISH_MODE", "remind")).lower()
 
 
 def _template() -> str:
-    return gvarstatus("BDWISH_MSG") or DEFAULT_WISH
+    return kv_get("BDWISH_MSG") or DEFAULT_WISH
 
 
 def _age(b) -> int | None:
@@ -104,29 +103,26 @@ async def _send_wish(client, user, b) -> bool:
 
 
 def _sent_today() -> set:
-    try:
-        data = json.loads(gvarstatus("BDWISH_SENT") or "{}")
-    except Exception:
-        data = {}
+    data = kv_get_json("BDWISH_SENT", {}) or {}
     return set(data.get(now_local().date().isoformat(), []))
 
 
 def _mark_sent(ids):
     today = now_local().date().isoformat()
-    addgvar("BDWISH_SENT", json.dumps({today: sorted(_sent_today() | set(ids))}))
+    kv_set_json("BDWISH_SENT", {today: sorted(_sent_today() | set(ids))})
 
 
 async def _daily_check(force=False):
     mode = _mode()
     today = now_local().date().isoformat()
-    if mode == "off" or (not force and gvarstatus("BDWISH_LAST") == today):
+    if mode == "off" or (not force and kv_get("BDWISH_LAST") == today):
         return
     try:
         people = await _todays_birthdays(catub)
     except Exception as e:
         LOGS.error(f"birthday check failed: {e}")
         return
-    addgvar("BDWISH_LAST", today)
+    kv_set("BDWISH_LAST", today)
     if not people:
         return
     lines = ["🎂 <b>Birthdays today</b>\n"]
@@ -198,7 +194,7 @@ async def _scan_contacts(client, status):
             with contextlib.suppress(Exception):
                 await status.edit(f"`Scanning contacts… {i}/{len(users)}`")
         await asyncio.sleep(0.4)
-    addgvar("BDAY_CACHE", json.dumps({"at": now_local().date().isoformat(), "people": found}, ensure_ascii=False))
+    kv_set_json("BDAY_CACHE", {"at": now_local().date().isoformat(), "people": found})
     return found
 
 
@@ -216,9 +212,7 @@ async def bdays_cmd(event):
     "Upcoming birthdays."
     refresh = bool(event.pattern_match.group(1))
     status = await edit_or_reply(event, "`Checking birthdays…`")
-    cache = {}
-    with contextlib.suppress(Exception):
-        cache = json.loads(gvarstatus("BDAY_CACHE") or "{}")
+    cache = kv_get_json("BDAY_CACHE", {}) or {}
     stale = not cache or (now_local().date() - date.fromisoformat(cache.get("at", "2000-01-01"))).days >= 7
     people = await _scan_contacts(event.client, status) if refresh or stale else cache.get("people", {})
     if not people:
@@ -273,7 +267,7 @@ async def bdwish_cmd(event):
     sub = sub.lower()
 
     if sub in ("remind", "auto", "off"):
-        addgvar("BDWISH_MODE", sub)
+        kv_set("BDWISH_MODE", sub)
         if sub == "off":
             if _scheduler and _scheduler.running:
                 with contextlib.suppress(Exception):
@@ -290,7 +284,7 @@ async def bdwish_cmd(event):
     if sub == "msg":
         if not rest.strip():
             return await edit_delete(event, "`Give the template text.`", 6)
-        addgvar("BDWISH_MSG", rest.strip())
+        kv_set("BDWISH_MSG", rest.strip())
         return await edit_delete(event, f"✅ Wish template saved:\n{rest.strip()}", 10)
 
     if sub == "test":

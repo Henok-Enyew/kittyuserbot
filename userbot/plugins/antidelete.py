@@ -17,7 +17,7 @@ from ..core.logger import logging
 from ..core.managers import edit_delete, edit_or_reply
 from ..helpers.functions.kittychat import describe, esc, media_kind, name_of
 from ..helpers.functions.kittytime import fmt_local
-from ..sql_helper.globals import addgvar, gvarstatus
+from ..sql_helper.kitty_kv_sql import kv_get, kv_set
 
 plugin_category = "utils"
 LOGS = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ _cache = OrderedDict()  # msg_id -> dict
 
 
 def _on() -> bool:
-    return (gvarstatus("ANTIDELETE") or "off") == "on"
+    return (kv_get("ANTIDELETE") or "off") == "on"
 
 
 @catub.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
@@ -126,7 +126,7 @@ async def antidelete_cmd(event):
     "Anti-delete switch."
     arg = event.pattern_match.group(1)
     if arg:
-        addgvar("ANTIDELETE", arg)
+        kv_set("ANTIDELETE", arg)
         if arg == "off":
             _cache.clear()
         return await edit_delete(event, f"🗑 Anti-delete **{arg}**.", 5)

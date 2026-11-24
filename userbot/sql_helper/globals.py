@@ -40,17 +40,27 @@ def gvarstatus(variable):
 
 
 def addgvar(variable, value):
-    if SESSION.query(Globals).filter(Globals.variable == str(variable)).one_or_none():
-        delgvar(variable)
-    adder = Globals(str(variable), value)
-    SESSION.add(adder)
-    SESSION.commit()
+    try:
+        if SESSION.query(Globals).filter(Globals.variable == str(variable)).one_or_none():
+            delgvar(variable)
+        adder = Globals(str(variable), value)
+        SESSION.add(adder)
+        SESSION.commit()
+    except BaseException:
+        # without this a failed write (e.g. a value too big for the globals_pkey
+        # index) leaves the shared session unusable for every other plugin
+        SESSION.rollback()
+        raise
 
 
 def delgvar(variable):
-    if rem := (
-        SESSION.query(Globals)
-        .filter(Globals.variable == str(variable))
-        .delete(synchronize_session="fetch")
-    ):
-        SESSION.commit()
+    try:
+        if rem := (
+            SESSION.query(Globals)
+            .filter(Globals.variable == str(variable))
+            .delete(synchronize_session="fetch")
+        ):
+            SESSION.commit()
+    except BaseException:
+        SESSION.rollback()
+        raise
