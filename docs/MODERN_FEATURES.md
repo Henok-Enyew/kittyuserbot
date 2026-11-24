@@ -10,8 +10,8 @@ AI key or Telegram Premium. Every command also shows up in `.help`.
 | `.whoreact` (reply) | Who reacted with which emoji | `insight.py` |
 | `.online [@user]` | Who's online now / active in the last 15 min; a user's last seen | `insight.py` |
 | `.peek [n \| @chat] [count]` | Unread inbox, then read a chat **without** sending read receipts | `insight.py` |
-| `.stories @user [-p]` | Download someone's active (or profile) stories without calling the "mark viewed" API | `stories.py` |
-| `.mystories [n]` | Your active stories, views, reactions, viewer list | `stories.py` |
+| `.stories @user [-p \| list \| n \| a-b]` | Someone's active / profile stories, or one by number (newest = 1), without calling the "mark viewed" API. Their expired unpinned stories aren't available from Telegram | `stories.py` |
+| `.mystories [list \| n \| a-b \| all] [-v]` | Your stories incl. the full archive: browse, download by number (newest = 1), viewer list | `stories.py` |
 | `.poststory [text] [-c\|-cf] [-tN]` | Post the replied photo/video, or a generated gradient text story | `stories.py` |
 | `.autoreact <emoji\|random\|off>` | Auto-react to a person (reply) or a whole chat; `.autoreacts` lists rules | `autoreact.py` |
 | `.fx <emoji> <text>` | Send with a full-screen message effect (PMs; free: 👍 👎 ❤️ 🔥 🎉 💩) | `fx.py` |
