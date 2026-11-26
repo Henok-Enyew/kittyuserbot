@@ -60,7 +60,7 @@ def _build_reminder_text(period_label: str) -> str:
         f"⚠️ <b>LeetCode reminder</b> ({period_label})\n\n"
         f"{mention}, you have <b>not solved any LeetCode problem today</b> "
         f"({today_str}, UTC+3).\n\n"
-        f"Keep your streak — solve at least one before the day ends.\n"
+        f"Keep your streak — solve at least one before 3:00 AM (LeetCode resets at 00:00 UTC).\n"
         f"Profile: <a href=\"{profile}\">{username}</a>"
     )
 

@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional, Tuple
 
 import requests
 
 from ...Config import Config
-from .digest_builder import ADDIS_TZ, addis_now
 
 LC_GRAPHQL_URL = "https://leetcode.com/graphql"
 LC_HEADERS = {
@@ -81,11 +80,16 @@ def fetch_recent_submissions(
     return submissions
 
 
+def leetcode_today() -> date:
+    """LeetCode's day resets at 00:00 UTC (03:00 in Addis), so use the UTC date."""
+    return datetime.now(timezone.utc).date()
+
+
 def submissions_on_date(
     submissions: List[dict],
     target_date: datetime.date,
 ) -> List[str]:
-    """Return titles of submissions accepted on target_date (local date per ts)."""
+    """Return titles of submissions accepted on target_date (LeetCode/UTC day)."""
     titles: List[str] = []
     for item in submissions:
         ts = item.get("timestamp")
@@ -95,7 +99,7 @@ def submissions_on_date(
             ts_int = int(ts)
         except (TypeError, ValueError):
             continue
-        sub_date = datetime.fromtimestamp(ts_int, tz=ADDIS_TZ).date()
+        sub_date = datetime.fromtimestamp(ts_int, tz=timezone.utc).date()
         if sub_date == target_date:
             title = item.get("title") or item.get("titleSlug") or "Unknown"
             titles.append(str(title))
@@ -104,11 +108,12 @@ def submissions_on_date(
 
 def solved_today(username: Optional[str] = None) -> Tuple[bool, List[str]]:
     """
-    Check if user solved at least one problem today (Africa/Addis_Ababa calendar day).
+    Check if user solved at least one problem on the current LeetCode day,
+    which runs 00:00-24:00 UTC (03:00-03:00 in Addis), not the Addis calendar day.
     Returns (solved_flag, list_of_titles_today).
     """
     username = (username or _leetcode_username()).strip()
-    today = addis_now().date()
+    today = leetcode_today()
     submissions = fetch_recent_submissions(username=username, limit=20)
     titles = submissions_on_date(submissions, today)
     return bool(titles), titles
@@ -117,14 +122,14 @@ def solved_today(username: Optional[str] = None) -> Tuple[bool, List[str]]:
 def today_status_text(username: Optional[str] = None) -> str:
     """Human-readable status for .lcstatus."""
     username = (username or _leetcode_username()).strip()
-    today = addis_now()
+    today = leetcode_today()
     try:
         solved, titles = solved_today(username)
     except Exception as e:
         return f"**LeetCode check failed:** `{e}`"
 
     date_str = today.strftime("%Y-%m-%d")
-    tz_label = "Africa/Addis_Ababa (UTC+3)"
+    tz_label = "LeetCode day, resets 3:00 AM Addis"
     header = f"**LeetCode — {username}**\n**Date:** `{date_str}` ({tz_label})"
 
     if not solved:
