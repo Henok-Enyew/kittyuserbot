@@ -37,14 +37,20 @@ AI key or Telegram Premium. Every command also shows up in `.help`.
 | `.top [24h\|7d\|30d]` | Leaderboard of who talks the most | `groupfun.py` |
 | `.declutter [archive\|read]` | Find never-read channels, dead groups, deleted accounts, old bots; archive or mark read | `declutter.py` |
 | `.capsule <when> <text>` | Time-capsule message delivered to this chat up to a year later | `remind.py` |
+| `.kitty [on\|off\|pet\|treat\|name\|coat\|public\|notify\|stats\|reset]` | Pixel cat that follows your life: eats LeetCode problems, sulks when the streak breaks, sleeps on your keyboard at 2-5 AM, grows kitten → legend | `kitty.py` |
+| `.livepfp [on\|off\|scene\|preview\|now\|every\|shuffle]` | Living profile photo: pixel city with a lit window per problem solved today, streak beacon, real Addis sky/moon/weather, sleeps when you're offline, Kitty on the roof | `livepfp.py` |
 
 Times are parsed and shown in Africa/Addis_Ababa time (`10m`, `1h30m`, `18:30`,
 `6pm`, `tomorrow 9am`).
 
 Shared helpers live in `userbot/helpers/functions/`: `kittytime.py` (time
 parsing), `ethiocal.py` (Ethiopian calendar, Ge'ez numerals, holidays), `kittychat.py` (names, links, message labels), `kittycard.py` and
-`wrapped_card.py` (Pillow rendering).
+`wrapped_card.py` (Pillow rendering), `kittylife.py` (live signals: online status,
+Open-Meteo weather, LeetCode solves and streak), `kittypet.py` (Kitty's simulation,
+no Telegram code), `pixelscene.py` (80x80 pixel-art city, sprites, status card) and
+`kittystore.py` (glue between them).
 
 Settings are stored in the `globals` table: `AUTOREACT_RULES`, `BDWISH_MODE`,
 `BDWISH_MSG`, `BDWISH_SENT`, `BDWISH_LAST`, `BDAY_CACHE`, `COUNTDOWNS`,
-`KW_STATE`, `BIZ_STATE`, `ANTIDELETE`.
+`KW_STATE`, `BIZ_STATE`, `ANTIDELETE`. Kitty and the living photo keep their state in
+`kitty_kv` (`KITTY_PET`, `LIVEPFP`). Both are off until you turn them on.
