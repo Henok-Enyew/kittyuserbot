@@ -39,6 +39,8 @@ if ENV:
     VPS_NOLOAD = ["vps"]
 elif os.path.exists("config.py"):
     VPS_NOLOAD = ["heroku"]
+else:
+    VPS_NOLOAD = []  # config from plain env vars (docker compose .env)
 
 
 async def setup_bot():

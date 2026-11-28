@@ -1,39 +1,37 @@
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~# CatUserBot #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# Copyright (C) 2020-2023 by TgCatUB@Github.
-
-# This file is part of: https://github.com/TgCatUB/catuserbot
-# and is released under the "GNU v3.0 License Agreement".
-
-# Please see: https://github.com/TgCatUB/catuserbot/blob/master/LICENSE
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-
-version: '3.3'
+# KittyUserbot
+#
+#   docker compose up -d --build     start (rebuilds after code changes)
+#   docker compose logs -f           live logs (Ctrl+C to stop watching)
+#   docker compose restart           restart the bot
+#   docker compose down              stop it
+#
+# All settings and keys live in .env (copy .env.example to .env and fill it in).
+# It uses the database in DATABASE_URL (e.g. Supabase). To run a local Postgres
+# instead, set DATABASE_URL=postgresql://postgres:postgres@db/catuserbot and start
+# with: docker compose --profile localdb up -d --build
 
 services:
- app:
-    container_name: cat
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: python3 -m userbot
-    restart: on-failure
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db/catuserbot
-    depends_on:
-      - db
+  kitty:
+    build: .
+    container_name: kittyuserbot
+    env_file: .env
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
- db:
-    image: postgres
-    restart: always
+  db:
+    image: postgres:16-alpine
+    profiles: ["localdb"]
+    restart: unless-stopped
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=catuserbot
     volumes:
       - db:/var/lib/postgresql/data
+
 volumes:
   db:
-    driver: local
-  botdata:
-    driver: local
-
